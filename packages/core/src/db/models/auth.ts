@@ -51,3 +51,9 @@ export function authSessionModel(connection: Connection): Model<AuthSessionDoc> 
 export function toObjectId(id: string): Types.ObjectId | null {
   return Types.ObjectId.isValid(id) ? new Types.ObjectId(id) : null;
 }
+
+/** Parses a 24-hex-character id; throws on anything else. */
+export function objectId(id: string): Types.ObjectId {
+  if (!/^[a-f0-9]{24}$/i.test(id)) throw new RangeError(`Invalid id: ${id}`);
+  return new Types.ObjectId(id);
+}

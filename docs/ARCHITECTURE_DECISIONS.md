@@ -173,6 +173,12 @@ Newest entries are appended at the bottom. Don't rewrite history; supersede an e
 
     Each adapter rewrites the neutral JSON Schema (from `z.toJSONSchema`) into its dialect and moves dropped constraints into field descriptions. The shared client **always re-validates with the full Zod schema** and runs at most **one** repair round.
 
+  - **Gemini schema budget (found live, 2026-10-15).** The 9.6k-character evaluation schema (130 enum values, 8 numeric ranges, 11 array bounds) was rejected with a bare `400 INVALID_ARGUMENT`; the smaller triage and cluster schemas passed. Community reports point to a constrained-decoding state budget (about 120 enum values; bounds add states). The Gemini adapter therefore:
+    - moves numeric bounds and array sizes into descriptions
+    - describes, rather than enforces, enums with more than 20 values (e.g. the 55 subcategories)
+
+    The shared client still validates the full Zod contract and repairs once. A test keeps the evaluation schema within this budget.
+
   - **Gemini counts reasoning tokens against `maxOutputTokens`.** The adapter adds headroom per effort level. The live test used 533 reasoning tokens for a 129-token answer.
   - **Effort.** Claude uses `output_config.effort`; Gemini uses `thinkingConfig.thinkingLevel`.
   - **Refusals.** Claude Sonnet and Opus calls opt into server-side refusal fallback (`fallbacks: 'default'`, beta `server-side-fallback-2026-07-01`). Haiku has none. Gemini safety finishes map to `safety_blocked`.
@@ -245,3 +251,29 @@ Newest entries are appended at the bottom. Don't rewrite history; supersede an e
 - **Notes:**
   - The CLI's `tsconfck` declares a TypeScript ^5 peer while the repo uses 6.0.3. `trigger dev` built and ran fine.
   - pnpm reports "agent skills awaiting approval" for `@trigger.dev/sdk` and `trigger.dev`. They were left unapproved.
+
+## ADR-021 — Discovery pipeline design and cost controls
+
+- **Status:** Implemented (2026-10-15). Verified with fixtures only; no live run yet.
+- **Shape:**
+  - `prepareRun` runs discover → revisit → extract → triage → cluster.
+  - `evaluateStory` runs once per candidate, in parallel Trigger.dev child tasks.
+  - `finalizeRun` ranks and accounts for every candidate.
+  - All of it lives in `packages/core/src/discovery/pipeline/`, so tests and `runDiscoveryInline` use exactly the code the worker runs.
+- **Resumption:** each stage persists its own results and records itself in `completedStages` with its stats. A resumed run skips completed stages, so it doesn't search, extract or triage (and pay) twice. Clustering skips articles already placed in a story created by the same run. Evaluation is idempotent per run. Finalize records each recommendation once per run.
+- **Cost controls (all deterministic, before any model call):**
+  - **URLs:** canonicalisation (https, no `www`, no tracking parameters, sorted query, no trailing slash) dedupes articles.
+  - **Syndicated copies:** titles with ≥ 0.75 token similarity are always grouped, whatever the model returns.
+  - **Revisits:** an unchanged content hash, or text ≥ 0.97 similar (word 5-shingle Jaccard), costs no model call.
+  - **Suppression:** repeats and skipped developments identified at clustering are never evaluated.
+  - **Batching and caps:** triage is batched (8 articles per call on the triage tier). Extraction, triage excerpts, clustering items, evaluations (25) and escalations (4 per run, atomic) are all capped.
+  - **Schedule:** the daily schedule only exists in Trigger.dev **production**, so development never spends on a timer.
+- **Model output safety:**
+  - Articles are labelled `A1…`, stories `S1…`; models never output URLs.
+  - Cluster output is normalised into a valid partition: each article exactly once, unknown story labels degrade to "new". If clustering fails permanently, each article becomes its own "new" story.
+  - Triage failures send articles forward rather than dropping them. Transient model errors propagate, so the task retries.
+- **Deadlines:** start + 2 h (soft), + 3 h (extension, used only if fewer than 3 candidates were evaluated), + 4 h (hard). They are relative to the run's first start, so there's no wall-clock DST arithmetic. Evaluations that finish after the set closes are recorded as `deferred_late`. Unevaluated candidates stay pending and carry over to the next run while fresh.
+- **Retries:**
+  - Each evaluation task retries up to 5 times (5 s to 120 s, exponential, randomised) and aborts immediately on permanent errors (configuration, auth, invalid request, refusal, invalid output).
+  - The orchestrator retries up to 3 times, and the run lease (30 min, renewed while polling) prevents duplicate execution.
+- **Known limitation:** `@tavily/core` 0.7 drops HTTP status codes, so search errors are classified from the message text (`classifyTavilyError`). Unknown errors are treated as transient.

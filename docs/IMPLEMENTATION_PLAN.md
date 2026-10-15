@@ -198,7 +198,7 @@ The UI polls `GET /api/tasks/[id]`, which reads our own task documents, every 3 
 
 The operations page shows the funnel and these reasons. The newsroom shows a short note, e.g. "3 stories met the bar today", with a link to why.
 
-All limits come from a single `discoveryConfig` with env overrides; the defaults are documented in IMPLEMENTATION_PLAN.md.
+All limits come from `readDiscoveryConfig()` (`packages/core/src/discovery/config.ts`, the source of truth for every variable and default), with env overrides. The main ones are in the table below.
 
 **Retries.** Trigger.dev `retry: {maxAttempts: 5, factor: 2, minTimeoutInMs: 2000, maxTimeoutInMs: 60000, randomize: true}`. Permanent errors (validation, config, 4xx) abort without retry. The exact v4 API (`AbortTaskRunError`, `schemaTask`, `wait.for`, `batch.trigger`) will be verified against docs at install. Every side effect is an upsert keyed by a deterministic id.
 
@@ -300,6 +300,7 @@ All of these live in `packages/core/src/config.ts` and can be overridden by envi
 | Soft / extension / hard deadline (Chicago)          | `RUN_SOFT_DEADLINE`, `RUN_EXTENSION_DEADLINE`, `RUN_HARD_DEADLINE` | 02:00 / 03:00 / 04:00                         | Generous: real runs should finish in minutes                                     |
 | Minimum evaluated before extension                  | `RUN_MIN_CANDIDATES`                                               | 3                                             | Triggers the bounded extension                                                   |
 | Discovery languages                                 | `DISCOVERY_LANGUAGES`                                              | `en`                                          | **Known MVP limitation** — see below                                             |
+| Run lease                                           | `RUN_LEASE_MINUTES`                                                | 30                                            | Covers the longest stage between heartbeats                                      |
 | Task retry attempts                                 | (code)                                                             | 5                                             | Brief: max five attempts for retryable failures                                  |
 | LLM provider                                        | `LLM_PROVIDER`                                                     | `gemini` (dev); `anthropic` before production | ADR-016                                                                          |
 | Models per tier                                     | `GEMINI_MODEL_{TRIAGE,PRIMARY,ESCALATION}`, `ANTHROPIC_MODEL_{…}`  | See decision 2                                | Defaults live only in `packages/core/src/llm/config.ts`                          |
@@ -320,3 +321,5 @@ The MVP discovers stories only through English-language sources. This is a delib
 - Story merge/split tools for editors.
 - Browser end-to-end tests (Playwright) with a test-only auth strategy.
 - Batch API for triage, to halve the cost of non-urgent AI work.
+- A deterministic low-quality-extraction check (navigation-only pages) to skip evaluation calls.
+- A calibration set of editor-labelled real stories for the gates and scoring (the critical-issue threshold in particular).

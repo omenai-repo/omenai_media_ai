@@ -11,8 +11,13 @@ import {
 } from '../types.js';
 
 /**
- * Keywords `responseJsonSchema` accepts (per the @google/genai 2.30 type docs). Notably absent:
- * `minLength`, `maxLength`, `pattern`, `const`, exclusive bounds.
+ * Keywords we send in `responseJsonSchema`. Gemini documents a subset (no `minLength`,
+ * `maxLength`, `pattern` or `const`), and in practice it also rejects large schemas with a bare
+ * 400 INVALID_ARGUMENT. Our 9.6k-character evaluation schema with 130 enum values, numeric
+ * ranges and array bounds failed live on 2026-10-15 while smaller schemas passed. Community
+ * reports point to a constrained-decoding "state" budget (about 120 enum values; numeric and
+ * array bounds add states). So bounds also go into descriptions, and large enums are described
+ * rather than enforced. The client still validates the full Zod contract (with one repair round).
  */
 const GEMINI_SCHEMA_KEYWORDS = new Set([
   '$id',
@@ -26,10 +31,6 @@ const GEMINI_SCHEMA_KEYWORDS = new Set([
   'enum',
   'items',
   'prefixItems',
-  'minItems',
-  'maxItems',
-  'minimum',
-  'maximum',
   'anyOf',
   'oneOf',
   'properties',
@@ -38,17 +39,30 @@ const GEMINI_SCHEMA_KEYWORDS = new Set([
   'propertyOrdering',
 ]);
 
-/** Gemini has no `const`; a single-value enum is equivalent. */
-function rewriteConst(node: Record<string, unknown>): Record<string, unknown> {
-  if ('const' in node) {
-    const { const: value, ...rest } = node;
-    return { ...rest, enum: [value] };
+/** Enums longer than this are listed in the description instead of being enforced natively. */
+export const GEMINI_MAX_NATIVE_ENUM = 20;
+
+function geminiNode(node: Record<string, unknown>): Record<string, unknown> {
+  let out = node;
+  // No `const`: a single-value enum is equivalent.
+  if ('const' in out) {
+    const { const: value, ...rest } = out;
+    out = { ...rest, enum: [value] };
   }
-  return node;
+  if (Array.isArray(out.enum) && out.enum.length > GEMINI_MAX_NATIVE_ENUM) {
+    const { enum: values, ...rest } = out;
+    const allowed = `Allowed values: ${(values as unknown[]).join(', ')}.`;
+    out = {
+      ...rest,
+      description:
+        typeof rest.description === 'string' ? `${rest.description} ${allowed}` : allowed,
+    };
+  }
+  return out;
 }
 
 export function toGeminiSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  return adaptJsonSchema(schema, GEMINI_SCHEMA_KEYWORDS, rewriteConst);
+  return adaptJsonSchema(schema, GEMINI_SCHEMA_KEYWORDS, geminiNode);
 }
 
 const THINKING_LEVEL: Record<Effort, ThinkingLevel> = {

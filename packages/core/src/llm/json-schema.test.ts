@@ -24,10 +24,12 @@ describe('provider schema adaptation', () => {
     expect(neutral.type).toBe('object');
   });
 
-  it('Gemini: keeps numeric/array bounds, drops string-length limits into the description', () => {
+  it('Gemini: moves bounds and length limits into descriptions to stay within its schema budget', () => {
     const gemini = toGeminiSchema(neutral);
-    expect(prop(gemini, 'score')).toMatchObject({ minimum: 0, maximum: 5 });
-    expect(prop(gemini, 'tags')).toMatchObject({ maxItems: 3 });
+    expect(prop(gemini, 'score').minimum).toBeUndefined();
+    expect(prop(gemini, 'score').description).toContain('minimum 0');
+    expect(prop(gemini, 'tags').maxItems).toBeUndefined();
+    expect(prop(gemini, 'tags').description).toContain('max items 3');
     expect(prop(gemini, 'headline').minLength).toBeUndefined();
     expect(prop(gemini, 'headline').description).toContain('min length 5');
     // No `const` support: rewritten as a single-value enum.
@@ -50,5 +52,46 @@ describe('provider schema adaptation', () => {
     toGeminiSchema(neutral);
     toAnthropicSchema(neutral);
     expect(JSON.stringify(neutral)).toBe(before);
+  });
+});
+
+describe('Gemini schema budget for the real pipeline schemas', () => {
+  it('keeps the evaluation schema within the enum and constraint budget that failed live', async () => {
+    const { evaluationOutputSchema } = await import('../discovery/schemas.js');
+    const { GEMINI_MAX_NATIVE_ENUM } = await import('./providers/gemini.js');
+    const gemini = toGeminiSchema(toNeutralJsonSchema(evaluationOutputSchema));
+
+    let enumValues = 0;
+    let largestEnum = 0;
+    const keys = new Set<string>();
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (!node || typeof node !== 'object') return;
+      for (const [key, value] of Object.entries(node)) {
+        if (key !== 'properties') keys.add(key);
+        if (key === 'enum' && Array.isArray(value)) {
+          enumValues += value.length;
+          largestEnum = Math.max(largestEnum, value.length);
+        }
+        walk(value);
+      }
+    };
+    walk(gemini);
+
+    expect(largestEnum).toBeLessThanOrEqual(GEMINI_MAX_NATIVE_ENUM);
+    expect(enumValues).toBeLessThan(100);
+    for (const bound of [
+      'minimum',
+      'maximum',
+      'minItems',
+      'maxItems',
+      'minLength',
+      'maxLength',
+      'pattern',
+    ]) {
+      expect(keys.has(bound)).toBe(false);
+    }
+    // The subcategory vocabulary is still communicated, just not enforced by Gemini.
+    expect(JSON.stringify(gemini)).toContain('Allowed values: contemporary_art_practice');
   });
 });

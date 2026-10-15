@@ -2,6 +2,10 @@ import { getConnection } from './client.js';
 import { aiUsageModel } from './models/ai-usage.js';
 import { authSessionModel, authUserModel } from './models/auth.js';
 import { invitationModel } from './models/invitation.js';
+import { sourceArticleModel } from './models/source-article.js';
+import { storyModel } from './models/story.js';
+import { taskModel } from './models/task.js';
+import { workflowRunModel } from './models/workflow-run.js';
 
 /** All Mongoose models, bound to the shared connection. */
 export async function getModels() {
@@ -11,6 +15,10 @@ export async function getModels() {
     AuthUser: authUserModel(connection),
     AuthSession: authSessionModel(connection),
     AiUsage: aiUsageModel(connection),
+    SourceArticle: sourceArticleModel(connection),
+    Story: storyModel(connection),
+    WorkflowRun: workflowRunModel(connection),
+    Task: taskModel(connection),
   };
 }
 
@@ -40,9 +48,17 @@ const AUTH_INDEXES = [
 /** Creates all indexes. Idempotent; run on deploy (`pnpm db:indexes`) and in tests. */
 export async function ensureIndexes(): Promise<void> {
   const connection = await getConnection();
-  const { Invitation, AiUsage } = await getModels();
-  await Invitation.syncIndexes();
-  await AiUsage.syncIndexes();
+  const models = await getModels();
+  for (const model of [
+    models.Invitation,
+    models.AiUsage,
+    models.SourceArticle,
+    models.Story,
+    models.WorkflowRun,
+    models.Task,
+  ]) {
+    await model.syncIndexes();
+  }
 
   for (const index of AUTH_INDEXES) {
     await connection.db!.collection(index.collection).createIndex(index.key, {
