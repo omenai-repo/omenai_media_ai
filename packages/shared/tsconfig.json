@@ -1,0 +1,7 @@
+{
+  "extends": ["../../tsconfig.base.json", "@repo/config/typescript/library.json"],
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src"]
+}

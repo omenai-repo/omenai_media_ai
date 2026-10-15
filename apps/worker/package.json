@@ -1,0 +1,29 @@
+{
+  "name": "@repo/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:trigger": "trigger dev",
+    "deploy": "trigger deploy",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@repo/core": "workspace:*",
+    "@repo/shared": "workspace:*",
+    "@trigger.dev/sdk": "4.7.4",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/config": "workspace:*",
+    "@trigger.dev/build": "4.7.4",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "trigger.dev": "4.7.4",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

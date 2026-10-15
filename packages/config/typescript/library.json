@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "$comment": "Runtime-agnostic libraries consumed by both Node.js and the browser: no DOM or Node.js globals. Extend together with the root tsconfig.base.json.",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": [],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
+}

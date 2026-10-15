@@ -1,0 +1,12 @@
+{
+  "extends": ["../../tsconfig.base.json", "@repo/config/typescript/library.json"],
+  "compilerOptions": {
+    // Trigger.dev bundles the tasks itself; tsc only type-checks.
+    "types": ["node"],
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "trigger.config.ts"]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "omenai-media-ai",
+  "private": true,
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:web": "turbo run dev --filter=@repo/web...",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm format:check && turbo run lint typecheck test build",
+    "owner:invite": "pnpm --filter @repo/core build && pnpm --filter @repo/core owner:invite",
+    "db:indexes": "pnpm --filter @repo/core build && pnpm --filter @repo/core db:indexes"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "turbo": "^2.11.7"
+  }
+}

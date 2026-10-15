@@ -1,0 +1,47 @@
+{
+  "name": "@repo/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "owner:invite": "node --env-file-if-exists=../../apps/web/.env.local dist/cli/owner-invite.js",
+    "db:indexes": "node --env-file-if-exists=../../apps/web/.env.local dist/cli/ensure-indexes.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.134.0",
+    "@better-auth/mongo-adapter": "^1.7.7",
+    "@google/genai": "^2.30.0",
+    "@repo/shared": "workspace:*",
+    "@tavily/core": "^0.7.14",
+    "better-auth": "^1.7.7",
+    "mongodb": "~7.7.0",
+    "mongoose": "^9.11.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@better-auth/core": "1.7.7",
+    "@repo/config": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "mongodb-memory-server": "^11.3.0",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

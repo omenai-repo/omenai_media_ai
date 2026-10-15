@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Turborepo
+.turbo/
+
+# Trigger.dev local build output
+.trigger/
+
+# Testing
+coverage/
+
+# Environment files: never commit secrets. Only the documented examples are tracked.
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS / tooling
+.DS_Store
+*.pem
+.vercel

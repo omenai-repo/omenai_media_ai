@@ -1,0 +1,9 @@
+{
+  "extends": ["../../tsconfig.base.json", "@repo/config/typescript/library.json"],
+  "compilerOptions": {
+    // Unlike @repo/shared, core is Node-only (database, provider SDKs, crypto).
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src", "vitest.config.ts", "vitest.global-setup.ts"]
+}

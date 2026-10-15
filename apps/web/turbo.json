@@ -1,0 +1,11 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      // `next build` deletes and rewrites .next/types, which `typecheck` generates and reads,
+      // so the two must not run concurrently.
+      "dependsOn": ["^build", "typecheck"]
+    }
+  }
+}
