@@ -1,4 +1,5 @@
 import { getModels } from '../../db/models.js';
+import { pickPreviewImage } from '../images.js';
 import { canonicalizeUrl, contentHash } from '../normalize.js';
 import type { DiscoveryDeps } from './context.js';
 
@@ -45,6 +46,7 @@ export async function extractStage(runKey: string, deps: DiscoveryDeps): Promise
     const article = canonical ? byCanonical.get(canonical) : undefined;
     if (!article || !page.content.trim()) continue;
     const content = page.content.slice(0, config.storedContentChars);
+    const image = pickPreviewImage(page.images, page.content);
     await SourceArticle.updateOne(
       { _id: article._id },
       {
@@ -53,6 +55,7 @@ export async function extractStage(runKey: string, deps: DiscoveryDeps): Promise
           contentHash: contentHash(content),
           extractionStatus: 'extracted',
           lastCheckedAt: now,
+          ...(image ? { image: { ...image, capturedAt: now, rights: 'unverified' } } : {}),
           ...(page.title && !article.originalHeadline ? { originalHeadline: page.title } : {}),
         },
       },

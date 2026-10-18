@@ -224,6 +224,45 @@ export async function failRun(input: {
   );
 }
 
+/**
+ * Records a failed attempt that will be retried: the run goes back to `queued` (so it can be
+ * claimed again) instead of reading as failed while its next attempt is still due.
+ */
+export async function deferRun(input: {
+  runKey: string;
+  owner: string;
+  stage: string;
+  message: string;
+}) {
+  const { WorkflowRun } = await getModels();
+  await WorkflowRun.updateOne(
+    { runKey: input.runKey, leaseOwner: input.owner },
+    {
+      $set: { status: 'queued', leaseExpiresAt: null },
+      $push: {
+        runErrors: { stage: input.stage, message: input.message.slice(0, 2_000), at: new Date() },
+      },
+    },
+  );
+}
+
+/**
+ * Runs that failed recently (within `days`). The next run adopts their unfinished articles
+ * (extracted but not triaged, in scope but in no story) so work already paid for isn't lost when
+ * a run fails partway, for example during a provider outage.
+ */
+export async function failedRunKeys(now: Date, days: number): Promise<string[]> {
+  const { WorkflowRun } = await getModels();
+  const runs = await WorkflowRun.find(
+    { status: 'failed', createdAt: { $gte: new Date(now.getTime() - days * 86_400_000) } },
+    { runKey: 1 },
+  ).lean();
+  return runs.map((run) => run.runKey);
+}
+
+/** A queued run quiet for this long is no longer going to start or resume on its own. */
+export const RUN_QUIET_AFTER_MS = 45 * 60_000;
+
 export async function getRun(runKey: string): Promise<WorkflowRunDoc | null> {
   const { WorkflowRun } = await getModels();
   return WorkflowRun.findOne({ runKey }).lean();
@@ -251,10 +290,25 @@ export async function countRunEvaluations(
   return { finished, evaluated, pending: storyIds.length - finished };
 }
 
-/** True when a run is executing under a live lease (used to refuse overlapping manual runs). */
+/**
+ * True when a run is executing under a live lease, or is waiting to start or to retry and still
+ * expected to (recent activity, attempts left). Used to refuse overlapping manual runs, so a
+ * retry in progress can't be doubled by a second search.
+ */
 export async function hasActiveRun(now: Date): Promise<boolean> {
   const { WorkflowRun } = await getModels();
-  return (await WorkflowRun.exists({ status: 'running', leaseExpiresAt: { $gt: now } })) !== null;
+  return (
+    (await WorkflowRun.exists({
+      $or: [
+        { status: 'running', leaseExpiresAt: { $gt: now } },
+        {
+          status: 'queued',
+          attempts: { $lt: MAX_RUN_ATTEMPTS },
+          updatedAt: { $gt: new Date(now.getTime() - RUN_QUIET_AFTER_MS) },
+        },
+      ],
+    })) !== null
+  );
 }
 
 export async function attachTriggerRun(runKey: string, triggerRunId: string): Promise<void> {

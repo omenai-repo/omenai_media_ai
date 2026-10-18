@@ -1,4 +1,5 @@
 import { getModels } from '../../db/models.js';
+import { pickPreviewImage } from '../images.js';
 import { canonicalizeUrl, contentHash, textSimilarity } from '../normalize.js';
 import { CHANGE_SYSTEM_PROMPT } from '../prompts.js';
 import { changeOutputSchema } from '../schemas.js';
@@ -80,6 +81,14 @@ export async function revisitStage(runKey: string, deps: DiscoveryDeps): Promise
     stats.revisited += 1;
     const content = page.content.slice(0, config.storedContentChars);
     const hash = contentHash(content);
+    // Fill in a preview image for articles stored before images were captured (no model call).
+    const image = article.image ? null : pickPreviewImage(page.images, page.content);
+    if (image) {
+      await SourceArticle.updateOne(
+        { _id: article._id },
+        { $set: { image: { ...image, capturedAt: now, rights: 'unverified' } } },
+      );
+    }
     const revisionBase = {
       checkedAt: now,
       contentHash: hash,

@@ -1,7 +1,8 @@
 import { MongoClient, type Db } from 'mongodb';
 import mongoose, { type Connection } from 'mongoose';
 
-import { optionalEnv, requireEnv } from '../config/env.js';
+import { requireEnv } from '../config/env.js';
+import { configuredDatabaseName } from '../config/runtime.js';
 
 /**
  * One MongoClient per process, shared by Mongoose (our models) and Better Auth (its adapter).
@@ -19,16 +20,15 @@ interface DbState {
 
 const globalForDb = globalThis as typeof globalThis & { __omenaiDb?: DbState };
 
-const DEFAULT_DB_NAME = 'omenai';
-
 function createState(): DbState {
   const client = new MongoClient(requireEnv('MONGODB_URI'), {
     appName: 'omenai-newsroom',
     maxPoolSize: 10,
   });
   // Named explicitly (not taken from the URI path) so Mongoose and Better Auth can never
-  // disagree about which database they use.
-  return { client, dbName: optionalEnv('MONGODB_DB_NAME') ?? DEFAULT_DB_NAME, connection: null };
+  // disagree about which database they use. Required, and checked against OMENAI_RUNTIME: a
+  // missing name is never assumed to mean any particular database.
+  return { client, dbName: configuredDatabaseName(), connection: null };
 }
 
 function getState(): DbState {
@@ -42,6 +42,11 @@ function getState(): DbState {
  */
 export function getMongoClient(): MongoClient {
   return getState().client;
+}
+
+/** The name of the database this process uses (not a secret; tasks carry it to the worker). */
+export function getDatabaseName(): string {
+  return getState().dbName;
 }
 
 /** The application database on the shared client (used by Better Auth's adapter). */

@@ -29,3 +29,4 @@ minimumReleaseAgeExclude:
   - trigger.dev@4.7.4
   - '@anthropic-ai/sdk@0.134.0'
   - '@google/genai@2.30.0'
+  - resend@6.33.0

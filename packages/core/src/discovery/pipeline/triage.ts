@@ -4,11 +4,14 @@ import { LlmError } from '../../llm/types.js';
 import { excerpt } from '../normalize.js';
 import { TRIAGE_SYSTEM_PROMPT } from '../prompts.js';
 import { recordRunError } from '../runs.js';
+import { failedRunKeys } from '../runs.js';
 import { triageOutputSchema } from '../schemas.js';
 import type { DiscoveryDeps } from './context.js';
 
 export interface TriageStats extends Record<string, unknown> {
   triaged: number;
+  /** Articles left untriaged by a run that failed, taken on by this one. */
+  adopted: number;
   inScope: number;
   outOfScope: number;
   batches: number;
@@ -30,7 +33,8 @@ export function triagePrompt(articles: readonly SourceArticleDoc[], excerptChars
 }
 
 /**
- * First-pass triage of this run's new articles, in small batches on the triage tier. Results are
+ * First-pass triage of this run's new articles (and any a failed run left untriaged), in small
+ * batches on the triage tier. Results are
  * saved per article, so a resumed run only triages what is left. If a batch's output stays
  * invalid after the client's repair round, its articles go forward to clustering rather than
  * being silently dropped (evaluation then decides).
@@ -38,15 +42,23 @@ export function triagePrompt(articles: readonly SourceArticleDoc[], excerptChars
 export async function triageStage(runKey: string, deps: DiscoveryDeps): Promise<TriageStats> {
   const { SourceArticle } = await getModels();
   const { config } = deps;
+  const failed = await failedRunKeys(deps.now(), config.freshnessDays);
   const pending = await SourceArticle.find({
-    firstRunKey: runKey,
+    firstRunKey: { $in: [runKey, ...failed] },
     extractionStatus: { $in: ['extracted', 'failed'] },
     triage: null,
   })
     .sort({ searchScore: -1 })
     .lean();
 
-  const stats: TriageStats = { triaged: 0, inScope: 0, outOfScope: 0, batches: 0, fallbacks: 0 };
+  const stats: TriageStats = {
+    triaged: 0,
+    adopted: pending.filter((a) => a.firstRunKey !== runKey).length,
+    inScope: 0,
+    outOfScope: 0,
+    batches: 0,
+    fallbacks: 0,
+  };
   for (let i = 0; i < pending.length; i += config.triageBatchSize) {
     const batch = pending.slice(i, i + config.triageBatchSize);
     stats.batches += 1;

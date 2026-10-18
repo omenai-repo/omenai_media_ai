@@ -3,103 +3,82 @@
 @import 'shadcn/tailwind.css';
 
 /*
- * Omenai newsroom design tokens. "Stories Shaping Culture": a warm paper-and-ink editorial
- * palette with hairline rules and a single ochre accent, used sparingly for emphasis, focus
- * and priority signals. Names follow shadcn/ui so its components inherit the theme.
+ * Omenai newsroom: "atelier edition". A single, art-directed light theme: warm paper and bone
+ * grounds, ink text, hairline rules and one terracotta-ochre accent. Display headlines in
+ * Instrument Serif, reading text in Newsreader, interface text in Geist.
  *
- * Contrast: foreground on background and muted-foreground on background both exceed WCAG AA
- * (4.5:1) in light and dark mode.
+ * Token names follow shadcn/ui so its components inherit the theme. Text colours meet WCAG AA
+ * on paper: ink ≈ 16:1, graphite ≈ 8:1, ochre ≈ 5:1. `--stone` is for rules and icons only.
+ *
+ * Shape: one radius scale from `--radius` (controls ≈ 10px, cards 12px, dialogs ≈ 17px), soft
+ * hairlines and quiet surface shifts instead of hard rules; one soft shadow for floating things.
  */
 :root {
   color-scheme: light;
 
-  --background: oklch(0.975 0.007 85); /* paper */
-  --foreground: oklch(0.21 0.012 60); /* ink */
-  --card: oklch(0.99 0.004 85);
-  --card-foreground: var(--foreground);
-  --popover: oklch(0.99 0.004 85);
-  --popover-foreground: var(--foreground);
+  --paper: oklch(0.966 0.011 80);
+  --bone: oklch(0.94 0.014 80);
+  --ivory: oklch(0.985 0.006 85);
+  --ink: oklch(0.205 0.01 60);
+  --graphite: oklch(0.42 0.012 65);
+  --stone: oklch(0.62 0.012 70);
+  --hairline: oklch(0.885 0.013 80);
+  --rule-strong: oklch(0.8 0.015 75);
+  --ochre: oklch(0.5 0.12 48);
+  --ochre-wash: oklch(0.93 0.035 70);
+  --moss: oklch(0.45 0.07 140);
+  --moss-wash: oklch(0.94 0.03 140);
+  --amber: oklch(0.5 0.1 75);
+  --amber-wash: oklch(0.95 0.04 85);
+  --oxide: oklch(0.48 0.13 30);
+  --oxide-wash: oklch(0.95 0.025 30);
+  /* A rule soft enough to separate without dividing. */
+  --hairline-soft: oklch(0.91 0.011 80);
+  --shadow-float: 0 1px 2px rgb(26 23 20 / 0.04), 0 12px 32px -16px rgb(26 23 20 / 0.22);
 
-  --primary: oklch(0.21 0.012 60);
-  --primary-foreground: oklch(0.975 0.007 85);
-  --secondary: oklch(0.94 0.01 80);
-  --secondary-foreground: var(--foreground);
-  --muted: oklch(0.945 0.009 80);
-  --muted-foreground: oklch(0.47 0.015 65);
-  --accent: oklch(0.935 0.014 75); /* hover surfaces in menus/lists */
-  --accent-foreground: var(--foreground);
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--ivory);
+  --card-foreground: var(--ink);
+  --popover: var(--ivory);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--ivory);
+  --secondary: var(--bone);
+  --secondary-foreground: var(--ink);
+  --muted: var(--bone);
+  --muted-foreground: var(--graphite);
+  --accent: var(--bone);
+  --accent-foreground: var(--ink);
+  --destructive: var(--oxide);
+  --border: var(--hairline);
+  --input: var(--rule-strong);
+  --ring: var(--ochre);
+  --chart-1: var(--ochre);
+  --chart-2: var(--moss);
+  --chart-3: oklch(0.45 0.06 250);
+  --chart-4: var(--amber);
+  --chart-5: var(--graphite);
+  --sidebar: var(--bone);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--ivory);
+  --sidebar-accent: var(--paper);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--hairline);
+  --sidebar-ring: var(--ochre);
 
-  --ochre: oklch(0.55 0.13 52);
-  --ochre-foreground: oklch(0.99 0.004 85);
-  --ochre-soft: oklch(0.93 0.04 70);
-  --success: oklch(0.52 0.1 155);
-  --success-soft: oklch(0.94 0.035 155);
-  --warning: oklch(0.58 0.12 75);
-  --warning-soft: oklch(0.95 0.045 85);
-  --destructive: oklch(0.53 0.19 28);
-  --destructive-soft: oklch(0.95 0.03 28);
-
-  --border: oklch(0.885 0.012 80); /* hairline rules */
-  --input: oklch(0.86 0.013 80);
-  --ring: oklch(0.55 0.13 52);
-
-  --chart-1: oklch(0.55 0.13 52);
-  --chart-2: oklch(0.52 0.1 155);
-  --chart-3: oklch(0.47 0.08 250);
-  --chart-4: oklch(0.58 0.12 75);
-  --chart-5: oklch(0.45 0.06 320);
-
-  --sidebar: oklch(0.96 0.009 82);
-  --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: var(--accent);
-  --sidebar-accent-foreground: var(--foreground);
-  --sidebar-border: var(--border);
-  --sidebar-ring: var(--ring);
-
-  --radius: 0.375rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-
-    --background: oklch(0.17 0.008 60);
-    --foreground: oklch(0.93 0.009 85);
-    --card: oklch(0.205 0.009 60);
-    --popover: oklch(0.215 0.009 60);
-
-    --primary: oklch(0.93 0.009 85);
-    --primary-foreground: oklch(0.19 0.009 60);
-    --secondary: oklch(0.26 0.01 60);
-    --muted: oklch(0.24 0.01 60);
-    --muted-foreground: oklch(0.72 0.012 80);
-    --accent: oklch(0.27 0.012 60);
-
-    --ochre: oklch(0.73 0.12 62);
-    --ochre-foreground: oklch(0.19 0.009 60);
-    --ochre-soft: oklch(0.3 0.05 60);
-    --success: oklch(0.72 0.11 155);
-    --success-soft: oklch(0.28 0.04 155);
-    --warning: oklch(0.78 0.12 80);
-    --warning-soft: oklch(0.3 0.05 80);
-    --destructive: oklch(0.7 0.17 28);
-    --destructive-soft: oklch(0.3 0.06 28);
-
-    --border: oklch(0.31 0.01 60);
-    --input: oklch(0.36 0.012 60);
-    --ring: oklch(0.73 0.12 62);
-
-    --sidebar: oklch(0.19 0.009 60);
-  }
+  --radius: 0.75rem;
+  /* One gutter for header and content, so everything aligns. */
+  --gutter: clamp(1rem, 4.5vw, 5rem);
 }
 
 @theme inline {
   --font-sans: var(--font-geist-sans);
-  --font-serif: var(--font-newsreader);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-newsreader);
+  --font-serif: var(--font-newsreader);
+  --font-display: var(--font-instrument);
+  --font-heading: var(--font-instrument);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -115,18 +94,28 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-ochre: var(--ochre);
-  --color-ochre-foreground: var(--ochre-foreground);
-  --color-ochre-soft: var(--ochre-soft);
-  --color-success: var(--success);
-  --color-success-soft: var(--success-soft);
-  --color-warning: var(--warning);
-  --color-warning-soft: var(--warning-soft);
   --color-destructive: var(--destructive);
-  --color-destructive-soft: var(--destructive-soft);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-paper: var(--paper);
+  --color-bone: var(--bone);
+  --color-ivory: var(--ivory);
+  --color-ink: var(--ink);
+  --color-graphite: var(--graphite);
+  --color-stone: var(--stone);
+  --color-hairline: var(--hairline);
+  --color-hairline-soft: var(--hairline-soft);
+  --color-rule-strong: var(--rule-strong);
+  --shadow-float: var(--shadow-float);
+  --color-ochre: var(--ochre);
+  --color-ochre-wash: var(--ochre-wash);
+  --color-moss: var(--moss);
+  --color-moss-wash: var(--moss-wash);
+  --color-amber: var(--amber);
+  --color-amber-wash: var(--amber-wash);
+  --color-oxide: var(--oxide);
+  --color-oxide-wash: var(--oxide-wash);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -152,36 +141,211 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring/60;
   }
   html {
     @apply font-sans;
     font-feature-settings: 'ss01', 'cv11';
+    text-rendering: optimizeLegibility;
   }
   body {
     @apply bg-background text-foreground antialiased;
   }
+  ::selection {
+    background: var(--ochre-wash);
+    color: var(--ink);
+  }
   h1,
   h2,
   h3 {
-    @apply font-serif tracking-tight text-balance;
+    @apply text-balance;
+  }
+  a {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 1px;
   }
   :focus-visible {
-    @apply outline-2 outline-offset-2 outline-ring;
+    outline: 2px solid var(--ochre);
+    outline-offset: 3px;
+    border-radius: 6px;
   }
+  /* Accordions open smoothly where the browser can animate to an auto height. */
+  @supports (interpolate-size: allow-keywords) {
+    :root {
+      interpolate-size: allow-keywords;
+    }
+    details.disclosure::details-content {
+      height: 0;
+      overflow: clip;
+      transition:
+        height 240ms ease,
+        content-visibility 240ms allow-discrete;
+    }
+    details.disclosure[open]::details-content {
+      height: auto;
+    }
+  }
+  /*
+   * Reduced motion: every animation and transition ends at once, looping ones (skeleton pulse,
+   * spinners) run a single cycle instead of flickering, and nothing scrolls smoothly. States are
+   * still shown: spinners stay visible beside their text, and accordions simply open.
+   */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
-    *::after {
+    *::after,
+    details.disclosure::details-content {
       animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
   }
 }
 
 @layer components {
-  /* Small-caps editorial label used for kickers, metadata and section markers. */
-  .kicker {
-    @apply font-sans text-[0.6875rem] font-medium tracking-[0.14em] text-muted-foreground uppercase;
+  /* The editorial canvas: wide, fluid, with one shared gutter. */
+  .canvas {
+    width: 100%;
+    max-width: 104rem;
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
+  /* Display type (Instrument Serif): headlines only. */
+  .display-xl {
+    font-family: var(--font-display);
+    font-size: clamp(2.75rem, 1.6rem + 4.4vw, 6rem);
+    line-height: 0.98;
+    letter-spacing: -0.015em;
+  }
+  .display-lg {
+    font-family: var(--font-display);
+    font-size: clamp(2.25rem, 1.5rem + 2.8vw, 4rem);
+    line-height: 1.02;
+    letter-spacing: -0.01em;
+  }
+  .display-md {
+    font-family: var(--font-display);
+    font-size: clamp(1.75rem, 1.35rem + 1.4vw, 2.625rem);
+    line-height: 1.08;
+    letter-spacing: -0.005em;
+  }
+  .display-sm {
+    font-family: var(--font-display);
+    font-size: clamp(1.375rem, 1.2rem + 0.6vw, 1.75rem);
+    line-height: 1.15;
+  }
+
+  /* Reading type (Newsreader). */
+  .standfirst {
+    font-family: var(--font-serif);
+    font-size: clamp(1.125rem, 1rem + 0.45vw, 1.4rem);
+    line-height: 1.5;
+    color: var(--graphite);
+  }
+  .prose-editorial {
+    font-family: var(--font-serif);
+    font-size: 1.125rem;
+    line-height: 1.7;
+    color: var(--ink);
+    max-width: 68ch;
+  }
+  .pull-quote {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: clamp(1.5rem, 1.2rem + 1vw, 2.125rem);
+    line-height: 1.2;
+  }
+
+  /* One quiet label style, sentence case. */
+  .eyebrow {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--ochre);
+  }
+  .meta {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--graphite);
+  }
+
+  /* Headline links: quiet until hovered. */
+  .headline-link {
+    text-decoration-line: underline;
+    text-decoration-color: transparent;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.12em;
+    transition: text-decoration-color 160ms ease;
+  }
+  .headline-link:hover {
+    text-decoration-color: var(--ochre);
+  }
+
+  .fade-in {
+    animation: omenai-fade-in 400ms ease-out both;
+  }
+  /* The caret of text being written: solid while words arrive, a slow soft blink while it waits
+     for more. Reduced motion ends the blink (the rule above), leaving it steady. */
+  .stream-caret {
+    display: inline-block;
+    width: 0.5ch;
+    height: 1.05em;
+    margin-left: 0.125rem;
+    border-radius: 1px;
+    background: color-mix(in srgb, var(--ochre) 70%, transparent);
+    transform: translateY(0.18em);
+  }
+  .stream-caret-waiting {
+    animation: omenai-caret 1.2s ease-in-out infinite;
+  }
+  /* The one raised surface: ivory, a soft hairline, the card radius. */
+  .surface {
+    background: var(--ivory);
+    border: 1px solid var(--hairline-soft);
+    border-radius: var(--radius);
+  }
+  /* A recessed surface for grouped, secondary material. */
+  .surface-quiet {
+    /* Mixed in sRGB: oklch interpolates hue between these near-neutrals and drifts pink. */
+    background: color-mix(in srgb, var(--bone) 55%, var(--paper));
+    border-radius: var(--radius);
+  }
+}
+
+/* New content settling into place: a short fade and a few pixels of rise, nothing more. A
+   utility (not a component class) so variants like `group-open:` can apply it. */
+@utility rise-in {
+  animation: omenai-rise-in 320ms ease-out both;
+}
+
+@keyframes omenai-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes omenai-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes omenai-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }

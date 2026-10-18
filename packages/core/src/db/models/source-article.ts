@@ -40,6 +40,17 @@ const triageSchema = new Schema(
   { _id: false },
 );
 
+/** Link to the publisher's preview image. Never downloaded or hosted; rights never assumed. */
+const imageSchema = new Schema(
+  {
+    url: { type: String, required: true },
+    alt: { type: String, default: null },
+    capturedAt: { type: Date, required: true },
+    rights: { type: String, enum: ['unverified'], default: 'unverified' },
+  },
+  { _id: false },
+);
+
 const sourceArticleSchema = new Schema(
   {
     canonicalUrl: { type: String, required: true, unique: true },
@@ -56,6 +67,7 @@ const sourceArticleSchema = new Schema(
     snippet: { type: String, default: '' },
     content: { type: String, default: '' },
     contentHash: { type: String, default: null },
+    image: { type: imageSchema, default: null },
     extractionStatus: { type: String, enum: EXTRACTION_STATUSES, default: 'pending' },
     lastCheckedAt: { type: Date, default: null },
     revisions: { type: [revisionSchema], default: [] },

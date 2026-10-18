@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getModels } from '../db/models.js';
 import { startTestDatabase, type TestDatabase } from '../testing/index.js';
@@ -39,6 +39,21 @@ async function expectRejection(promise: Promise<unknown>, reason: string) {
 }
 
 describe('createInvitation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('refuses development fixture accounts outside the fixtures runtime', async () => {
+    await expect(
+      createInvitation({ email: 'owner@fixtures.example', role: 'owner', invitedBy: 'x' }),
+    ).rejects.toMatchObject({ code: 'FIXTURE_ACCOUNT' });
+    vi.stubEnv('OMENAI_RUNTIME', 'fixtures');
+    vi.stubEnv('MONGODB_DB_NAME', 'omenai_fixtures');
+    await expect(
+      createInvitation({ email: 'owner@fixtures.example', role: 'owner', invitedBy: 'x' }),
+    ).resolves.toHaveProperty('token');
+  });
+
   it('stores only a hash of the token', async () => {
     const { token, invitation } = await invite('Editor@Omenai.Example ');
     const { Invitation } = await getModels();

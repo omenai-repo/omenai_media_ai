@@ -16,6 +16,14 @@ import type {
  * Plain, JSON-serialisable views for the dashboard (dates as ISO strings). Server components
  * read these through the newsroom services and can pass them straight to client components.
  */
+/** A link to the publisher's preview image. Rights are never cleared by us. */
+export interface ImageDto {
+  url: string;
+  alt: string | null;
+  publisher: string;
+  pageUrl: string;
+}
+
 export interface StoryCardDto {
   id: string;
   headline: string;
@@ -37,6 +45,9 @@ export interface StoryCardDto {
   editorialState: 'none' | 'saved' | 'skipped';
   sourceCount: number;
   publishers: string[];
+  image: ImageDto | null;
+  /** Who saved it and when (reading-list context only). */
+  saved?: { by: string; at: string } | null;
   firstSeenRunKey: string;
   lastRecommendedAt: string | null;
   createdAt: string | null;
@@ -55,6 +66,7 @@ export interface SourceDto {
   sourceQuality: string;
   extractionStatus: string;
   origin: string;
+  image: ImageDto | null;
 }
 
 export interface StoryDetailDto extends StoryCardDto {
@@ -72,7 +84,13 @@ export interface StoryDetailDto extends StoryCardDto {
   parent: { id: string; headline: string; editorialState: string } | null;
   developments: Array<{ id: string; headline: string; createdAt: string | null }>;
   decisions: Array<{ action: string; userName: string; reason: string | null; at: string }>;
-  recommendations: Array<{ runKey: string; rank: number; score: number; isUpdate: boolean; at: string }>;
+  recommendations: Array<{
+    runKey: string;
+    rank: number;
+    score: number;
+    isUpdate: boolean;
+    at: string;
+  }>;
   evaluation: {
     status: string;
     model: string | null;
@@ -94,7 +112,34 @@ export interface RunSummaryDto {
   candidates: number;
   qualified: number;
   shortlisted: number;
+  /** Articles found by search in this run. */
+  articlesFound: number;
+  /** Stories that received a decision in this run (recommended or not). */
+  storiesReviewed: number;
+  /** Searches and article reads that failed (the run may still have completed). */
+  sourceFailures: number;
+  evaluationFailures: number;
   shortfallReasons: ShortfallReason[];
+  /** Only for a run that hasn't finished. */
+  progress: RunProgressDto | null;
+}
+
+export interface RunProgressDto {
+  /** The current stage id (`discover`, `extract`, `evaluate`, …). */
+  stage: string;
+  /** Stories assessed so far, during the evaluate stage. */
+  done: number | null;
+  total: number | null;
+  articlesFound: number;
+}
+
+/** A story from the run that wasn't recommended, with a plain-language reason. */
+export interface ReviewedStoryDto {
+  id: string;
+  headline: string;
+  outcome: string;
+  reason: string;
+  score: number | null;
 }
 
 export interface UsageRowDto {
@@ -105,8 +150,13 @@ export interface UsageRowDto {
   errors: number;
   inputTokens: number;
   outputTokens: number;
+  cachedInputTokens: number;
   reasoningTokens: number;
   units: number;
+  /** Successful calls whose provider response didn't include a credit count. */
+  unreportedCalls: number;
+  /** Fixture activity: invented, never reported by a provider. */
+  simulated: boolean;
 }
 
 export interface RunDetailDto extends RunSummaryDto {
@@ -114,8 +164,25 @@ export interface RunDetailDto extends RunSummaryDto {
   funnel: RunFunnel | null;
   deadlines: { soft: string | null; extension: string | null; hard: string | null };
   candidateSetClosedAt: string | null;
-  outcomes: Array<{ storyId: string; headline: string; outcome: string; detail: string; score: number | null }>;
+  outcomes: Array<{
+    storyId: string;
+    headline: string;
+    outcome: string;
+    /** Technical detail (failing check ids, error text). */
+    detail: string;
+    /** The same outcome in plain language. */
+    reason: string;
+    /** In this run's shortlist (a qualified story can rank below a full edition). */
+    recommended: boolean;
+    score: number | null;
+  }>;
   errors: Array<{ stage: string; message: string; at: string | null }>;
-  failedTasks: Array<{ key: string; kind: string; attempts: number; lastError: string | null; updatedAt: string | null }>;
+  failedTasks: Array<{
+    key: string;
+    kind: string;
+    attempts: number;
+    lastError: string | null;
+    updatedAt: string | null;
+  }>;
   usage: UsageRowDto[];
 }

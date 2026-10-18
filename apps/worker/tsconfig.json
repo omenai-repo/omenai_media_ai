@@ -8,5 +8,5 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src", "trigger.config.ts"]
+  "include": ["src", "trigger.config.ts", "vitest.config.ts"]
 }

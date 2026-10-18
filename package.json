@@ -16,7 +16,9 @@
     "format:check": "prettier --check .",
     "check": "pnpm format:check && turbo run lint typecheck test build",
     "owner:invite": "pnpm --filter @repo/core build && pnpm --filter @repo/core owner:invite",
-    "db:indexes": "pnpm --filter @repo/core build && pnpm --filter @repo/core db:indexes"
+    "db:indexes": "pnpm --filter @repo/core build && pnpm --filter @repo/core db:indexes",
+    "db:seed-fixtures": "pnpm --filter @repo/core build && pnpm --filter @repo/core db:seed-fixtures",
+    "env:check": "pnpm --filter @repo/core build && pnpm --filter @repo/core env:check"
   },
   "devDependencies": {
     "prettier": "^3.9.10",

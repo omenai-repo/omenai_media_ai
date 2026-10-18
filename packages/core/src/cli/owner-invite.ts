@@ -16,7 +16,7 @@ import { ensureIndexes } from '../db/models.js';
 async function main(): Promise<void> {
   const email = process.argv[2];
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    console.error('Usage: pnpm owner:invite <google-account-email>');
+    console.error('Usage: pnpm owner:invite <email>');
     process.exitCode = 1;
     return;
   }
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   console.log(`Owner invitation created for ${invitation.email}.`);
   console.log(`Expires: ${invitation.expiresAt.toISOString()}`);
   console.log(
-    `\nOpen this link and sign in with that Google account:\n\n  ${appUrl}/invite/${token}\n`,
+    `\nOpen this link to choose a name and password for that account:\n\n  ${appUrl}/invite/${token}\n`,
   );
   console.log('The link is shown only once. Run this command again to issue a new one.');
 }

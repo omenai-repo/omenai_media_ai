@@ -1,4 +1,11 @@
-import { createAuthOptions, getDatabase, getMongoClient, requireEnv } from '@repo/core';
+import {
+  createAuthOptions,
+  getDatabase,
+  getMongoClient,
+  passwordResetEmail,
+  requireEnv,
+  sendEmail,
+} from '@repo/core';
 import { betterAuth } from 'better-auth';
 import { nextCookies } from 'better-auth/next-js';
 
@@ -9,6 +16,10 @@ function createAuth() {
       db: getDatabase(),
       secret: requireEnv('BETTER_AUTH_SECRET'),
       baseURL: requireEnv('BETTER_AUTH_URL'),
+      sendPasswordResetEmail: async (message) => {
+        const result = await sendEmail(passwordResetEmail(message));
+        if (!result.sent) throw new Error(`Password reset email not sent (${result.reason}).`);
+      },
       // Must stay last: applies cookies set during server actions.
       plugins: [nextCookies()],
     }),

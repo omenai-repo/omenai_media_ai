@@ -10,6 +10,8 @@ import type { ExtractedPage, SearchClient, SearchHit } from '../search/types.js'
 
 export interface FixtureArticle extends SearchHit {
   content: string;
+  /** Image URLs "found on the page" (fixture only). */
+  images: string[];
 }
 
 function body(title: string, detail: string): string {
@@ -20,14 +22,30 @@ function body(title: string, detail: string): string {
   ).join(' ');
 }
 
+/**
+ * Fixture images are stable placeholder photographs from picsum.photos (seeded URLs), used only
+ * in the fixtures database to exercise image layouts. They are not real story imagery.
+ */
+const fixtureImage = (seed: string) => `https://picsum.photos/seed/omenai-${seed}/1600/1066`;
+
 function article(
   url: string,
   title: string,
   publishedDate: string,
   score: number,
   detail: string,
+  imageSeed?: string,
 ): FixtureArticle {
-  return { url, title, snippet: detail, publishedDate, score, content: body(title, detail) };
+  return {
+    url,
+    title,
+    snippet: detail,
+    publishedDate,
+    score,
+    content: body(title, detail),
+    // A logo first, so the deterministic filter must skip it.
+    images: imageSeed ? ['https://cdn.example/site-logo.png', fixtureImage(imageSeed)] : [],
+  };
 }
 
 export const DAY1 = {
@@ -37,6 +55,7 @@ export const DAY1 = {
     'Mon, 12 Oct 2026 03:00:00 GMT',
     0.91,
     'The Lagos gallery stages a joint exhibition on the gele head-tie as adornment and authorship',
+    'gele',
   ),
   geleSyndicated: article(
     'https://nigeria-arts.example/news/alexis-galleries-pairs-two-contemporary-art-masters-in-gele?utm_source=feed',
@@ -72,6 +91,7 @@ export const DAY1 = {
     'Mon, 12 Oct 2026 03:00:00 GMT',
     0.7,
     'A youth punk event in Lagos with a small audience',
+    'punk',
   ),
   sale: article(
     'https://art-market.example/artwork/bedtime-2026',
@@ -86,6 +106,7 @@ export const DAY1 = {
     'Tue, 13 Oct 2026 08:00:00 GMT',
     0.95,
     'A retrospective of a sculptor working with reclaimed bottle caps opens in Cape Town',
+    'zeitz',
   ),
   rights: article(
     'https://archive.example.org/unseen-lagos-nightlife-photographs',
@@ -110,6 +131,7 @@ export const DAY2 = {
     'Sat, 17 Oct 2026 08:00:00 GMT',
     0.92,
     'A bottle-cap sculpture by Kwame Asante sells for a record price at auction',
+    'auction',
   ),
 };
 
@@ -117,12 +139,13 @@ export const DAY2 = {
 export function createFakeSearch(initialHits: FixtureArticle[]) {
   let hits = initialHits;
   const pages = new Map<string, string>(initialHits.map((h) => [h.url, h.content]));
+  const pageImages = new Map<string, string[]>(initialHits.map((h) => [h.url, h.images]));
   const calls = { search: 0, extract: 0, extractedUrls: [] as string[] };
 
   const client: SearchClient = {
     search: () => {
       calls.search += 1;
-      return Promise.resolve(hits.map(({ content: _content, ...hit }) => hit));
+      return Promise.resolve(hits.map(({ content: _content, images: _images, ...hit }) => hit));
     },
     extract: (urls) => {
       calls.extract += 1;
@@ -131,7 +154,7 @@ export function createFakeSearch(initialHits: FixtureArticle[]) {
       const failed: Array<{ url: string; error: string }> = [];
       for (const url of urls) {
         const content = pages.get(url);
-        if (content) found.push({ url, title: null, content });
+        if (content) found.push({ url, title: null, content, images: pageImages.get(url) ?? [] });
         else failed.push({ url, error: 'not in fixture' });
       }
       return Promise.resolve({ pages: found, failed });
@@ -143,7 +166,10 @@ export function createFakeSearch(initialHits: FixtureArticle[]) {
     calls,
     setHits(next: FixtureArticle[]) {
       hits = next;
-      for (const h of next) if (!pages.has(h.url)) pages.set(h.url, h.content);
+      for (const h of next) {
+        if (!pages.has(h.url)) pages.set(h.url, h.content);
+        if (!pageImages.has(h.url)) pageImages.set(h.url, h.images);
+      }
     },
     setPage(url: string, content: string) {
       pages.set(url, content);

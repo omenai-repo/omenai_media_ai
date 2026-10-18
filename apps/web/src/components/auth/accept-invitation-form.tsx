@@ -81,7 +81,7 @@ export function AcceptInvitationForm({ token, email }: { token: string; email: s
         autoComplete="new-password"
         required
       />
-      <Button type="submit" size="lg" variant="ochre" disabled={pending} className="mt-1 w-full">
+      <Button type="submit" size="lg" disabled={pending} className="mt-1 w-full">
         {pending ? <Loader2 className="animate-spin" aria-hidden /> : null}
         {pending ? 'Creating your account…' : 'Join the newsroom'}
       </Button>

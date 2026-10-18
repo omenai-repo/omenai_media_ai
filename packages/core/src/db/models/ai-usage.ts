@@ -22,6 +22,18 @@ const aiUsageSchema = new Schema(
     runKey: { type: String, default: null },
     taskId: { type: String, default: null },
     storyId: { type: String, default: null },
+    /**
+     * Timing and attempts, recorded since 2026-10-16 so latency and retries can be measured per
+     * operation and provider (earlier rows have none): wall time, time to the first streamed
+     * piece, HTTP attempts and the statuses of failed ones, and why a repair round was needed.
+     */
+    latencyMs: { type: Number, default: null },
+    firstChunkMs: { type: Number, default: null },
+    attempts: { type: Number, default: null },
+    retryStatuses: { type: [Number], default: undefined },
+    repairReason: { type: String, default: null },
+    /** Written by development fixtures only: invented activity, never reported by a provider. */
+    simulated: { type: Boolean, default: false },
   },
   { collection: 'aiUsage', timestamps: { createdAt: true, updatedAt: false } },
 );

@@ -2,7 +2,12 @@ import { tavily } from '@tavily/core';
 
 import { getModels } from '../db/models.js';
 import type { UsageContext } from '../llm/types.js';
-import { SearchError, type SearchClient, type SearchErrorKind } from './types.js';
+import {
+  SearchError,
+  type ExtractedPage,
+  type SearchClient,
+  type SearchErrorKind,
+} from './types.js';
 
 /**
  * @tavily/core 0.7 throws plain Errors and drops the HTTP status, so failures are classified
@@ -59,7 +64,7 @@ export function createTavilySearchClient(options: { apiKey: string }): SearchCli
     async search(query, searchOptions, context) {
       try {
         const response = await client.search(query, {
-          topic: 'news',
+          topic: searchOptions.topic ?? 'news',
           searchDepth: 'basic',
           timeRange: searchOptions.timeRange,
           maxResults: searchOptions.maxResults,
@@ -70,7 +75,7 @@ export function createTavilySearchClient(options: { apiKey: string }): SearchCli
         });
         await recordUsage({
           kind: 'search',
-          operation: 'discovery.search',
+          operation: `${searchOptions.purpose ?? 'discovery'}.search`,
           credits: response.usage?.credits ?? null,
           outcome: 'ok',
           context,
@@ -86,7 +91,7 @@ export function createTavilySearchClient(options: { apiKey: string }): SearchCli
         const searchError = toSearchError(error, 'search');
         await recordUsage({
           kind: 'search',
-          operation: 'discovery.search',
+          operation: `${searchOptions.purpose ?? 'discovery'}.search`,
           credits: null,
           outcome: 'error',
           errorKind: searchError.kind,
@@ -96,8 +101,9 @@ export function createTavilySearchClient(options: { apiKey: string }): SearchCli
       }
     },
 
-    async extract(urls, context) {
-      const pages: Array<{ url: string; title: string | null; content: string }> = [];
+    async extract(urls, context, extractOptions) {
+      const operation = `${extractOptions?.purpose ?? 'discovery'}.extract`;
+      const pages: ExtractedPage[] = [];
       const failed: Array<{ url: string; error: string }> = [];
       for (let i = 0; i < urls.length; i += EXTRACT_BATCH) {
         const batch = urls.slice(i, i + EXTRACT_BATCH);
@@ -105,24 +111,31 @@ export function createTavilySearchClient(options: { apiKey: string }): SearchCli
           const response = await client.extract([...batch], {
             extractDepth: 'basic',
             format: 'markdown',
+            // Preview-image candidates for the story card (no model call; credit effect unverified).
+            includeImages: true,
             includeUsage: true,
           });
           await recordUsage({
             kind: 'extract',
-            operation: 'discovery.extract',
+            operation,
             credits: response.usage?.credits ?? null,
             outcome: 'ok',
             context,
           });
           pages.push(
-            ...response.results.map((r) => ({ url: r.url, title: r.title, content: r.rawContent })),
+            ...response.results.map((r) => ({
+              url: r.url,
+              title: r.title,
+              content: r.rawContent,
+              images: (r.images ?? []).filter((i): i is string => typeof i === 'string'),
+            })),
           );
           failed.push(...response.failedResults.map((f) => ({ url: f.url, error: f.error })));
         } catch (error) {
           const searchError = toSearchError(error, 'extract');
           await recordUsage({
             kind: 'extract',
-            operation: 'discovery.extract',
+            operation,
             credits: null,
             outcome: 'error',
             errorKind: searchError.kind,

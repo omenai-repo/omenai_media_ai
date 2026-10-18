@@ -54,7 +54,7 @@ async function InvitationState({ params }: { params: Promise<{ token: string }> 
     const copy = UNUSABLE[result.state === 'valid' ? 'invalid' : result.state];
     return (
       <div>
-        <h1 className="mb-3 text-3xl font-normal">{copy.title}</h1>
+        <h1 className="display-md mb-3">{copy.title}</h1>
         <p className="mb-8 leading-relaxed text-muted-foreground">{copy.body}</p>
         <Button asChild variant="outline">
           <Link href="/login">Go to sign in</Link>
@@ -66,8 +66,8 @@ async function InvitationState({ params }: { params: Promise<{ token: string }> 
   const { invitation } = result;
   return (
     <div>
-      <p className="kicker mb-3">Invitation · {ROLE_LABEL[invitation.role]}</p>
-      <h1 className="mb-3 text-4xl font-normal">Join the Omenai newsroom</h1>
+      <p className="eyebrow mb-3">Invitation · {ROLE_LABEL[invitation.role]}</p>
+      <h1 className="display-md mb-3">Join the Omenai newsroom</h1>
       <p className="mb-2 leading-relaxed text-muted-foreground">
         You’ve been invited to join as an{' '}
         <span className="text-foreground">{ROLE_LABEL[invitation.role]}</span>.

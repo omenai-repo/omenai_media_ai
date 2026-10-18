@@ -6,12 +6,14 @@ import type { StoryDoc } from '../../db/models/story.js';
 import { LlmError } from '../../llm/types.js';
 import { titleSimilarity } from '../normalize.js';
 import { CLUSTER_SYSTEM_PROMPT } from '../prompts.js';
-import { recordRunError } from '../runs.js';
+import { failedRunKeys, recordRunError } from '../runs.js';
 import { clusterOutputSchema, type ClusterOutput } from '../schemas.js';
 import type { DiscoveryDeps } from './context.js';
 
 export interface ClusterStats extends Record<string, unknown> {
   items: number;
+  /** In-scope articles a failed run never placed in a story, taken on by this one. */
+  adopted: number;
   overCap: number;
   groups: number;
   newStories: number;
@@ -144,6 +146,7 @@ export async function clusterStage(runKey: string, deps: DiscoveryDeps): Promise
   const now = deps.now();
   const stats: ClusterStats = {
     items: 0,
+    adopted: 0,
     overCap: 0,
     groups: 0,
     newStories: 0,
@@ -156,18 +159,22 @@ export async function clusterStage(runKey: string, deps: DiscoveryDeps): Promise
     suppressedStoryIds: [],
   };
 
-  // On resume, articles already placed in a story created by this run are not clustered again.
+  // On resume, articles already placed in a story created by this run are not clustered again,
+  // and nothing already in any story is (so adopted articles can never be clustered twice).
   const runStories = await Story.find({ firstSeenRunKey: runKey }, { sourceArticleIds: 1 }).lean();
   const attached = runStories.flatMap((s) => s.sourceArticleIds);
+  const failed = await failedRunKeys(now, config.freshnessDays);
   const inScope = await SourceArticle.find({
-    firstRunKey: runKey,
+    firstRunKey: { $in: [runKey, ...failed] },
     'triage.inScope': true,
     _id: { $nin: attached },
+    storyIds: { $size: 0 },
   })
     .sort({ searchScore: -1 })
     .lean();
   const articles = inScope.slice(0, config.clusterMaxItems);
   stats.items = articles.length;
+  stats.adopted = articles.filter((a) => a.firstRunKey !== runKey).length;
   stats.overCap = inScope.length - articles.length;
 
   if (articles.length > 0) {

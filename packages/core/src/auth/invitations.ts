@@ -3,9 +3,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { Role } from '@repo/shared';
 import { Types } from 'mongoose';
 
+import { isFixtureRuntime } from '../config/runtime.js';
 import { getModels } from '../db/models.js';
 import type { InvitationDoc } from '../db/models/invitation.js';
-import { ConflictError, ForbiddenError, NotFoundError } from '../errors.js';
+import { AppError, ConflictError, ForbiddenError, NotFoundError } from '../errors.js';
 
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -59,6 +60,9 @@ function summarize(doc: InvitationRecord): InvitationSummary {
  * Issues a new invitation and returns the raw token exactly once. Any earlier live invitation
  * for the same email is revoked, so only the newest link works.
  */
+/** The reserved domain every development fixture account uses. */
+export const FIXTURE_EMAIL_DOMAIN = 'fixtures.example';
+
 export async function createInvitation(input: {
   email: string;
   role: Role;
@@ -71,6 +75,14 @@ export async function createInvitation(input: {
 
   if (await AuthUser.exists({ email })) {
     throw new ConflictError('USER_EXISTS', `${email} already has an account.`);
+  }
+  // Development fixture accounts exist only in the fixtures runtime, never in a real database.
+  if (email.endsWith(`@${FIXTURE_EMAIL_DOMAIN}`) && !isFixtureRuntime()) {
+    throw new AppError(
+      'FIXTURE_ACCOUNT',
+      'Development fixture accounts can only be created in the fixtures runtime.',
+      422,
+    );
   }
 
   await Invitation.updateMany(

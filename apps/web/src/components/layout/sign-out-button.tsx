@@ -7,7 +7,7 @@ import { useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { authClient } from '@/lib/auth-client';
 
-export function SignOutButton() {
+export function SignOutButton({ className }: { className?: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -15,6 +15,7 @@ export function SignOutButton() {
     <Button
       variant="ghost"
       size="sm"
+      className={className}
       disabled={pending}
       onClick={() =>
         startTransition(async () => {
@@ -24,7 +25,7 @@ export function SignOutButton() {
         })
       }
     >
-      <LogOut aria-hidden />
+      <LogOut aria-hidden className="text-graphite" />
       Sign out
     </Button>
   );

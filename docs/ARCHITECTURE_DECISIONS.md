@@ -277,3 +277,383 @@ Newest entries are appended at the bottom. Don't rewrite history; supersede an e
   - Each evaluation task retries up to 5 times (5 s to 120 s, exponential, randomised) and aborts immediately on permanent errors (configuration, auth, invalid request, refusal, invalid output).
   - The orchestrator retries up to 3 times, and the run lease (30 min, renewed while polling) prevents duplicate execution.
 - **Known limitation:** `@tavily/core` 0.7 drops HTTP status codes, so search errors are classified from the message text (`classifyTavilyError`). Unknown errors are treated as transient.
+
+## ADR-022 — Light-only editorial theme and one plain-language copy layer
+
+- **Status:** Implemented (2026-10-15), reviewed in a browser.
+- **Decision:**
+  - One art-directed light theme: paper, bone and ivory grounds, ink text, hairline rules, one terracotta-ochre accent, and muted moss, amber and oxide for status.
+  - The `prefers-color-scheme: dark` tokens are removed and `color-scheme: light` is set. Dark mode is post-MVP.
+  - Display type is Instrument Serif (headlines only), reading type is Newsreader and interface type is Geist, on a fluid `clamp()` scale.
+- **Why:** the product owner wants a premium cultural publication, not a console. One carefully tuned theme beats two half-tuned ones in the time left before Nov 1.
+- **Copy:** every editor-facing label for an internal state lives in `apps/web/src/components/editorial/copy.ts`. Outcome sentences come from the pure, tested `reviewReason()` in `@repo/shared`. Raw ids (run keys, gate ids, outcome codes) appear only inside "Technical details" disclosures.
+- **Accessibility:**
+  - All text pairs pass WCAG AA (computed).
+  - Status is never shown by colour alone (icon plus words).
+  - Native `<details>` for disclosure.
+  - Visible 2px focus ring.
+  - `prefers-reduced-motion` respected.
+
+## ADR-023 — Story imagery: linked publisher preview images, rights unverified
+
+- **Status:** Implemented (2026-10-15). Fixture-verified; live Tavily image behaviour unverified.
+- **Capture (no model calls):**
+  - Tavily extract is called with `includeImages: true`.
+  - `pickPreviewImage()` keeps the first candidate that is https, at most 2,048 characters, not svg/gif/ico or a data URL, and free of logo, icon, avatar, tracking, badge, banner or ad patterns.
+  - Alt text comes from the extracted markdown when present.
+  - Stored on `SourceArticle.image` as `{url, alt, capturedAt, rights: 'unverified'}`. Revisits fill it only when missing.
+- **Selection:** `selectRepresentativeImage()` runs at read time, never stored on the story. The order is: has an image → source quality → extracted text → earliest published → URL. It is deterministic and tested.
+- **Isolation:** image data is never passed to prompts, gates, scores or ranking. A pipeline test asserts that no prompt contains an image URL and that the shortlist is identical with and without images.
+- **Display:**
+  - A plain `<img>` with `loading="lazy"`, `decoding="async"` and `referrerPolicy="no-referrer"`. `next/image` would proxy and needs a host allow-list, which suits neither arbitrary publishers nor the "no hosting" rule.
+  - A fixed aspect ratio, so the layout doesn't shift.
+  - A typographic fallback when there is no image or it fails, including failures before hydration.
+  - The credit always says "Image: {publisher}, rights not cleared".
+- **Not done (by decision):** downloading, hosting, resizing or processing images, and any assumption of republication rights.
+
+## ADR-024 — Usage costs are estimates from a dated list-price table
+
+- **Status:** Implemented (2026-10-15).
+- **Decision:** providers report usage (tokens, credits), not billed amounts. `packages/core/src/ops/pricing.ts` therefore holds list prices with a `verifiedOn` date:
+  - Anthropic per million tokens
+  - Tavily pay-as-you-go per credit, with the free monthly allowance noted
+  - the Gemini development free tier, shown as no charge
+- **Presentation:** Operations groups usage into plain categories ("Finding stories", "Assessing stories", and later Research and Content).
+  - Every figure is labelled **Estimate**.
+  - A group with an unknown price shows "No estimate" rather than a partial total.
+  - The page says actual charges appear only in each provider's billing dashboard.
+- **Maintenance:** update the table and `verifiedOn` when prices change. The estimate is a planning aid, not accounting.
+
+## ADR-025 — Research briefs and grounded chat
+
+- **Status:** Implemented (2026-10-15). Fixture-verified; no live run yet.
+- **Queries without a model call:** research searches come from the story itself (headline, named entities with the place, a background query for in-depth research). This saves a model call per task, and the queries are visible in the brief.
+- **Persist first:** every new article is upserted into `sourceArticles` (`origin: research`) before the prompt is built, and the brief records each source's id and content hash. Research sources are **not** added to the story's own `sourceArticleIds`, so discovery's assessment and revisits are unaffected.
+- **Citation statuses**, decided only against stored text:
+  - `verified`: the quote was found after normalising quotes, dashes, whitespace and case, and it has at least 12 characters.
+  - `excerpt_not_located`: shown with a warning.
+  - `uncited`: analysis or an open question with no quote.
+  - Facts and attributed claims citing nothing, or citing an unknown label, are dropped and kept in `droppedClaims` for the audit trail.
+- **One task per story:** research and chat share one lock value on the task record (sparse-unique `activeLock`). A reply is never written against a brief that's still changing, and two editors can't double-spend. Abandoned locks (no progress for 45 minutes) are released on the next request.
+- **Chat** has no web access (post-MVP), answers from the latest brief, and invented `[S#]` markers are removed from the text and recorded.
+- **Fixture-only conveniences** (scenario seeding, `EMAIL_TRANSPORT=fixture-*`) are refused unless connected to a `*_fixtures` database (`isFixtureDatabase()`).
+
+## ADR-026 — Research as a story-bound conversation
+
+- **Status:** Implemented (2026-10-15). Fixture-verified.
+- **Shape:**
+  - One full-screen workspace per story (route group `(workspace)`).
+  - Every brief and chat message is persisted and shown in time order. A focused follow-up brief is appended, never replacing earlier ones.
+  - Briefs carry `requestKind`: `auto` (Omenai, on first open), `manual`, or `lead`.
+- **Boundary, enforced on the server:**
+  1. A triage-tier scope check (`about_story` / `related_lead` / `unrelated`) runs before each answer. `unrelated` gets a fixed reply written by the server; the answering model and the sources are never used for it.
+  2. Follow-up research accepts only `fromMessageId` pointing to an assistant reply on the same story with a suggested focus and in-scope evidence. The focus is read from the database, not taken from the client.
+  3. Research queries are built server-side from the story (and that focus). Results must pass `isRelevantToStory`.
+- **Relevance check (lexical, no model call):**
+  - **Anchors:** named entities from the assessment, multi-word proper-noun phrases from the headline or focus, and city names. A city counts once however many words it has. Countries, regions and common culture words never count on their own.
+  - **Rule:** relevant means one anchor phrase, or two distinct anchors.
+  - **Limits:** it can miss coverage that spells names differently or names no one, and it can admit coincidental matches. Admitted sources still go through citation checks.
+- **Credits:**
+  - A failed attempt's stored sources (`foundSourceIds`) are reused by a retry within 24 h for the same story and focus.
+  - The automatic briefing is refused once a brief exists, so stale pages don't spend credits.
+- **Development:** fixtures databases run tasks in-process with scripted answers after the response (`next/server` `after()`), because real Trigger.dev workers use the real database and services.
+
+## ADR-027 — Concise briefs with evidence on demand
+
+- **Status:** Implemented (2026-10-15). Fixture-verified.
+- **Context:** the first briefings read like reports: five headed sections and an uppercase label on every claim. Editors want a colleague's summary first, with the evidence a click away.
+- **Decision:**
+  - **Named parts:** the brief output is `overview`, `whyItMatters`, `findings`, `toConfirm` and `background`, each an array of claims. The server assigns each stored section a `kind` and a fixed title; the model never writes headings.
+  - **Length:** steered by the prompt (about 150–250 words across the first four parts) and by the field descriptions. Array limits stay generous, because output that fails validation costs a whole retry.
+  - **Overview:** it is now claims, so it is cited and checked like everything else. The stored `overview` string (used in chat and scope prompts) joins only the claims that were kept.
+  - **Presentation:** a pure web helper (`brief-digest.ts`) places claims, moves any misfiled open question into "Still to confirm", and writes the plain-language evidence summary from stored statuses. It never drops a claim or changes a status.
+- **Unchanged:** the citation checks, statuses, persistence, the lock, background tasks and the story boundary.
+- **Compatibility:** briefs stored before this change have no `kind`. They are placed by title, and their plain `overview` text is shown as before.
+
+## ADR-028 — A guided editorial interface
+
+- **Status:** Implemented (2026-10-15). Fixture-verified in the browser.
+- **Context:** screens gave most elements equal weight, and editors had to work out the next step themselves.
+- **Decision:**
+  - **Three levels on every screen:** primary information, one primary action, and supporting detail on demand.
+  - **Tokens:** shape and surfaces come from tokens (`--radius`, `.surface`, `.surface-quiet`, `--hairline-soft`, `--shadow-float`), not per-component values.
+  - **Native disclosures:** the accordion stays `<details>`. It's accessible and works with find-in-page, and it animates only where `interpolate-size` is supported.
+  - **The story page drives the workflow.** A read-only `getResearchStatus` query (counts and state, no content) chooses the primary action. The review → research → create → refine indicator is a guide, not a gate. A step that doesn't exist yet ("Create content") is labelled, never offered as a control.
+  - **Operations answers questions** (did it finish, was it enough, what needs attention, is the next one on track, what are we using). Self-correcting items are listed but not counted as needing attention. Which items are self-correcting is decided on the server (ADR-030).
+- **Unchanged:** the API contracts, schemas, authorization checks, citation and scope rules, and research task behaviour.
+
+## ADR-029 — The content studio: append-only draft versions from checked research
+
+- **Status:** Implemented (2026-10-16). Fixture-verified (automated and in the browser). No real model has written a draft yet.
+- **Shape:**
+  - **Formats:** five, defined once in `@repo/shared/editorial/drafts.ts` with their limits:
+    - Weekly Briefing item: about 150–300 words, with a headline
+    - editorial article: about 800–1,500 words, with a headline
+    - LinkedIn post: up to 3,000 characters
+    - Instagram caption: up to 2,200 characters
+    - X post: up to 280 characters
+
+    The server and the editor's live counter use the same `measureDraft`.
+
+  - **Storage:** `draftVersions` holds one document per version.
+    - `version` is unique per story and format, and `taskId` is sparse-unique, so a retried task never writes twice.
+    - Versions are only ever added; nothing updates or deletes one.
+    - Saving an edit adds an `edited` version, but only when the text differs from the latest version (line endings and trailing spaces don't count).
+    - Restoring an old version saves its text again as the newest version.
+    - A version someone else saved meanwhile is never overwritten. Both stay, and the client says so only when the edit began on the then-latest version.
+  - **Generation:**
+    1. `POST /api/stories/[id]/drafts` records a `generate` task and hands it to the worker.
+    2. The task holds a lock per story and format, so different formats can be written at once and research or chat is never blocked.
+    3. The `generate-draft` task (3 attempts, model only, no search) writes from the newest three briefs as they stood when the draft was requested. Each claim is tagged with how it was checked, and the editor's note is fenced as data.
+    4. A revision includes the version it revises.
+    5. The response is plain text plus a list of the statements it made, which are checked against stored source text with the research citation checks (`checkClaims`). The body never carries source labels; any that slip in are stripped.
+  - **Channel limits:** over a character limit, the model is asked once to shorten the draft. If it's still over, the shorter answer is saved and flagged in the studio, never cut silently. Word ranges are guidance, not errors.
+  - **Prerequisite:** a story needs a research brief before any draft (`NO_BRIEF`, 409).
+- **Studio:** `/stories/[id]/studio`, a full-height workspace like research, sharing its header (`WorkspaceHeader`).
+  - **Layout:** formats on the left, the editor in the middle, and "Before you use it" (statement checks, what the research still needs confirmed, image rights) plus version history on the right. These sit below the editor on narrower screens.
+  - **Unsaved edits:** kept per version in memory. Switching formats or versions never loses typing, and leaving the page with unsaved edits asks first.
+  - **Copy:** copies the headline and body. Nothing is published.
+- **Story page:** the next action becomes "Create content", then "Continue drafting", once research is ready (read-only `getDraftStatus`).
+- **Not decided here:** publishing, scheduling and channel accounts are out of scope. Live model quality (voice, length, how faithfully statements are listed) is unverified until an approved live run.
+
+## ADR-030 — Retries are classified on the server; fixture searches run in-process
+
+- **Status:** Implemented (2026-10-16).
+- **Retries:**
+  - **One table of limits:** `TASK_MAX_ATTEMPTS` in `tasks/contracts.ts` sets the most attempts per task kind. The worker configures its tasks from it, and Operations reads it, so "attempt 2 of 5" always matches what runs.
+  - **`automatic` flag:** every attention item now carries one, set on the server.
+    - Work that is retrying is automatic.
+    - It stops being automatic when the last attempt fails, when the error can't be fixed by retrying, or when a retry has been quiet for 45 minutes (`RETRY_STALLED_AFTER_MS`, the same window as an abandoned research lock).
+    - A lapsed discovery run is automatic only while it has attempts left and lapsed recently.
+  - **Not listed twice:** a failure that an editor already superseded (a later request of the same kind for the same story, and for drafts the same format) disappears. An exhausted assessment that its edition already reports isn't listed again.
+  - **Interface:** the page lists "Needs attention" and "Retrying on its own" separately.
+- **Fixture search:**
+  - **Before:** `POST /api/runs` called Trigger.dev even against a fixtures database. A dev worker would then have run real discovery against the real database.
+  - **Now:** against a `*_fixtures` database it runs the real pipeline in-process after the response (`runFixtureDiscovery`), with scripted search and answers and simulated usage, like research and chat (ADR-026). It refuses any other database.
+
+## ADR-031 — A guarded fixture path in the worker, to verify the real engine without AI spend
+
+- **Status:** Implemented (2026-10-16). Used once to verify `generate-draft` through Trigger.dev (VERIFICATION.md).
+- **Context:** the web app never sends fixture work to Trigger.dev (ADR-026). That keeps fixtures safe, but it also means the real engine (registration, queueing, attempts, retries, idempotency keys) was never exercised for drafts.
+- **Decision:**
+  - The `generate-draft` task uses the scripted writer from `@repo/core/fixtures` only when both are true:
+    - the configured database name ends in `_fixtures`
+    - the run's Trigger.dev environment isn't `PRODUCTION` (`ctx.environment.type`)
+
+    Otherwise it uses the configured provider.
+
+  - **Retry hook:** an editor's note containing `[fixture: fail the first attempt]` makes the scripted writer's first attempt fail with a transient outage, so the engine's own retry can be watched. Only the fixture writer reads it.
+  - **Verification setup:** the dev worker runs from its own env file with the fixtures database and empty Gemini, Anthropic and Tavily keys, so nothing metered is reachable even by mistake.
+- **Also:** malformed task payloads and 4xx application errors (invalid, not found, not allowed) are now permanent failures that abort at once. 409 conflicts stay retryable.
+- **Not extended:** research and chat tasks have no worker fixture path yet. They are verified in-process only.
+
+## ADR-032 — Count characters by each channel's rules, never fewer; describe checks exactly
+
+- **Status:** Implemented (2026-10-16).
+- **Character counts:**
+  - **X:** follows X's published weighting, checked 2026-10-16 against docs.x.com/fundamentals/counting-characters and twitter-text `config/v3.json`.
+    - Text is normalised to NFC.
+    - U+0000–U+10FF, U+2000–U+200D, U+2010–U+201F and U+2032–U+2037 weigh 1; everything else weighs 2.
+    - Every emoji sequence weighs 2, and every link weighs 23.
+  - **Links X might not recognise:** where we can't know whether X will treat text as a link (a bare domain, an unusual TLD), the count is a range. A post is only "within the limit" when the top of the range fits; otherwise the studio says to check the count in X. We didn't add the `twitter-text` library: its last release is from 2020, it's large for the browser, and the conservative range covers the cases where it and X could differ.
+  - **Instagram and LinkedIn:** they publish no exact rules, so we count UTF-16 units after NFC. That is never fewer than characters, and every emoji counts as at least 2.
+- **Evidence wording:** a citation whose quoted passage is found in the stored source is a **source check, not a fact-check**. It shows where a statement came from, not that it is true or that the passage supports it.
+  - The studio says so first, labels a match "Quoted passage found in the source. Read it to confirm it supports this" (with a quote icon, not a tick), and states that unlisted statements aren't checked at all.
+  - The citation popover (shared with research) reads "Found: … That shows where the point comes from, not that it's correct."
+  - Text that promised "only checked facts are stated as fact" now says what Omenai is told to do.
+
+## ADR-033 — An explicit runtime, and live development by default
+
+- **Status:** Implemented (2026-10-16). Verified with a bounded live run (VERIFICATION.md).
+- **Context:** local work had switched to mocks implicitly, whenever the database name ended in `_fixtures`. A missing `MONGODB_DB_NAME` silently meant `omenai`. The web app (`omenai_fixtures`) and the worker (`omenai`) were configured with different databases, and nothing compared them.
+- **Decision:**
+  - **`OMENAI_RUNTIME` is required.** It is `live-dev`, `fixtures`, `production` or `test` (Vitest only). The database name must agree with it (`_dev`, `_fixtures`, or neither), and both are checked whenever the database client is created. `isFixtureRuntime()` is the single gate for every mocked path.
+  - **Dispatch is checked on both sides.** The web app sends Trigger.dev only from a key matching its runtime (`tr_dev_` for live development). Task payloads name the database, and the worker aborts, untouched, on a different database or Trigger.dev environment.
+  - **Live development uses Gemini only.** Another `LLM_PROVIDER` is refused there.
+  - **Hard rolling 24-hour limits** (`AI_DAILY_CALL_LIMIT`, `SEARCH_DAILY_CREDIT_LIMIT`, required in live development) are checked before every real request, from our usage records. A refusal is a permanent `UsageLimitError`, so no retry spends past it.
+  - **Fixture accounts** can't be invited outside the fixtures runtime.
+  - **`pnpm env:check`** compares both env files without printing secrets, and can also ping the database and read Tavily's usage endpoint.
+- **Not changed:** fixtures, scripted providers and every test harness remain. Automated tests run in the `test` runtime against an in-memory database. The production schedule stays production-only.
+- **ADR-031 amended:** the worker's scripted draft writer now requires the fixtures runtime, not merely a `_fixtures` name.
+
+## ADR-034 — What the first live run changed
+
+- **Status:** Implemented (2026-10-16). Each item came from the live run; VERIFICATION.md records how each fix was tested.
+- **Gemini overload.** `gemini-3.8-flash` answered 503 "high demand" for over 15 minutes.
+  - The adapter now retries 429 and 5xx inside a call (4 attempts, about 15 seconds; rejected requests aren't billed), matching the Anthropic adapter's SDK retries.
+  - Live development's primary and escalation tiers were moved to `gemini-3.5-flash-lite` by environment override, the product owner's choice.
+- **A discovery run waiting for its next attempt reads as retrying, not failed.** Only the last attempt, or a permanent error, fails it. A queued run waiting to retry counts as active, so a second manual run can't double it. Operations shows it as retrying automatically, and as needing attention if it goes quiet.
+- **Work stranded by a failed run is adopted.** The next run triages what a failed run extracted and clusters what it triaged into no story. Clustering also skips any article already in a story, so nothing is clustered twice. Live: the third run adopted the 8 articles two failed runs had left. Once a later run completes, a failed run no longer counts as needing attention.
+- **Quote matching ignores Markdown formatting.** Stored pages are Markdown, so an exact quote of an italicised title or a link's text was reported as not found. Emphasis, links, images, code marks and escapes are now stripped from both sides before matching; the words still have to match exactly.
+- **Silent stops are visible.** Work that stops without recording an error reads as stopped after 45 minutes (the abandoned-lock window), with "Try again", in research, the studio, the story page and Operations.
+- **Costs are never assumed free.** Gemini is estimated at paid list prices (checked 2026-10-16), with a note that the free tier charges nothing; the app can't tell which tier a key is on.
+- **Wording follows the runtime.** Development pages no longer promise a nightly edition. Failure text names the service (AI or search) and recognises overload and the development usage limit.
+
+## ADR-035 — Chat replies stream from the web app; long work stays on Trigger.dev
+
+- **Status:** Implemented (2026-10-16), approved by the product owner. Verified offline and live (VERIFICATION.md, "Chat latency, scope, streaming and accuracy").
+- **Context:** an ordinary question took 53 s, 67 s and 237 s in live development. The records showed where the time went:
+  - Trigger.dev queueing and worker start-up took about 5–6.5 s per turn (one 19 s outlier). The trace of the 237 s turn: run created 1.7 s after the task record, attempt started 1.8 s later, first database write about 3 s after that.
+  - Two model calls in a row took the rest: a separate scope check (26–219 s for about 40 output tokens; nothing bounded a call) and the answer at medium thinking.
+  - Nothing streamed: the page polled every 3 s for a finished, saved reply.
+- **Decision:** the chat route answers a question itself and streams the reply.
+  - `POST /api/stories/[id]/chat` checks permission, saves the question (the story's lock and task record as before), then returns newline-delimited JSON: `accepted`, `started`, `retrying`, `text` (the visible answer so far), `checking`, then `done` with the saved reply or `failed`.
+  - The reply is one call through `LlmClient.streamObject` (ADR-036). Every statement's quote is checked against the stored sources before the reply is saved, exactly as before.
+  - **The reply doesn't depend on the connection.** It runs to the end and is saved even if the tab closes or reloads (`after()` keeps the work alive within the route's `maxDuration`). A reload shows "Writing a reply…" and polls until it is saved.
+  - **Stop** (`DELETE /api/stories/[id]/chat`) flags the task. The reply ends at once if this server instance runs it, otherwise within about a second (it polls the flag). Nothing of it is saved; the question stays.
+  - Research, focused follow-ups, drafts and discovery stay on Trigger.dev: they search, run for minutes and benefit from durable retries.
+- **Trade-offs:**
+  - The web app now holds the model key (server-only, never `NEXT_PUBLIC_`) and the daily limits, identical to the worker's; `pnpm env:check` compares them by fingerprint. The Tavily key stays out of the web app.
+  - Chat has no background retries: one attempt (`TASK_MAX_ATTEMPTS.chat = 1`), one quick retry of a rejected request inside the call, then a visible failure with "Ask again".
+  - A reply's lock counts as abandoned after 2 minutes, not 45, because the route is capped at 90 s.
+  - On Vercel, finishing after a disconnect relies on `after`/`waitUntil` within `maxDuration`. Verified on `next start`; not yet on a deployment.
+  - The `chat-reply` Trigger.dev task was removed.
+- **Also:** the worker reuses warm processes between runs (`processKeepAlive`), so research and draft runs don't each pay for a new process and database connection. Measured cost of a fresh process: 2.6–21.9 s of start-up in development (VERIFICATION.md).
+
+## ADR-036 — One call decides scope and answers; focused follow-ups answer the question; bounded calls
+
+- **Status:** Implemented (2026-10-16). Verified with scripted tests and a bounded live evaluation (VERIFICATION.md).
+- **Scope inside the answer.** The separate `chat.scope` call (a triage model told only "about the story itself" or "directly connected") refused "Does this story appeal to Omenai's focus on contemporary art?" live, twice.
+  - It is gone. The answer's structured output starts with `scope`: about_story, editorial (fit with Omenai's priorities, audience, territory from the playbook taxonomy, angles), related (wider art and culture questions) or unrelated.
+  - Only unrelated questions are redirected, with fixed server-written text: when the streamed scope reads `unrelated`, the call is stopped and nothing the model drafted is shown.
+  - The prompt says outright that going beyond the exact story is never by itself a reason to refuse.
+- **Answers as checked statements.** A reply is a list of statements, each with its own sources and its own word-for-word quote, so every citation sits next to the claim it is offered for (it used to be one quote per source label for the whole reply). Statements are checked with the briefs' `checkClaims`; unsourced facts and unknown labels are dropped and counted.
+- **Exact facts.** The chat and focused-research prompts forbid substituting a related fact ("a start date, an earlier role or a general career date does not establish the date of a specific appointment") and require saying plainly when the evidence doesn't settle a question, before giving the closest established fact marked as different.
+- **Focused follow-ups answer the question.** A lead used to produce a full brief (overview, significance, background, unrelated open questions) around its answer. It now uses `FOCUSED_RESEARCH_SYSTEM_PROMPT` and a focused schema: the answer (1–4 statements, the direct answer or "not established" first), how fully the sources answer it, at most two open points and two next steps. Stored as sections `answer` and `to_confirm`, with the brief's `evidence`. Lead searches no longer repeat the subject ("Alisa LaGamma When was Alisa LaGamma…").
+- **A deterministic safeguard for dates and figures** (`detail_not_in_excerpt`, in every claim check: briefs, drafts, chat). A fact or attributed claim whose found quote lacks a date or figure the claim states is flagged for checking.
+  - **It is not a support check.** It can only lower confidence. Passing it upgrades nothing: a quote can contain the right year and still describe something else ("a curator since 1996" is not "appointed Pulitzer Curator in 1996"). Whether a passage supports a claim stays the editor's judgement, with each statement's quote shown beside it.
+- **Every model call is bounded** (provider-neutral, enforced by the client, which stops waiting at the deadline even if an SDK is between retries):
+
+  | Work                                   | Per attempt                   | Retries inside the call                | Per call (hard)                                                                            | Outer limits                                      |
+  | -------------------------------------- | ----------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+  | Chat reply (streamed)                  | 25 s, capped at the time left | 1, on 429/5xx before any text          | the chat deadline (60 s from the request) less 5 s to save; a repair only with ≥ 10 s left | route 90 s; lock stale after 2 min                |
+  | Background (briefs, drafts, discovery) | 180 s (slowest seen: 132 s)   | the adapter's 4 attempts, 2–10 s apart | 240 s                                                                                      | Trigger.dev retries and each task's `maxDuration` |
+
+- **Instrumentation.** Every call records its wall time, time to the first streamed piece, HTTP attempts, the status of each failed attempt and, for a repair round, the schema paths that failed (no content). In-call retries were invisible before (L14).
+- **Provider-neutral, ready for routing by task.** Streaming, deadlines, retry policy and attempt records are neutral types that each adapter maps. A provider without streaming still works (the client hands its whole answer over at once). Callers name only an operation, a tier and an effort, so a later router can implement `LlmClient` and send different operations to different providers (for example by measured strength) without touching callers. Nothing in this change integrates OpenAI or Anthropic or moves off Gemini; the Anthropic adapter has no streaming yet.
+
+## ADR-037 — Progress comes from recorded steps; draft text streams through the task record; text is revealed at a steady pace
+
+- **Status:** Implemented (2026-10-17). Verified with tests and fixture browser walks. The live comparison of draft reasoning levels ran on 2026-10-17 (10 calls): medium stays; switching LinkedIn posts to low is offered to the product owner (VERIFICATION.md).
+- **Context:**
+  - **Chat text arrived in bursts.** The live model sent each whole answer in 1–7 pieces within 0.14–0.58 s, after a 3–9 s wait. Printed on arrival, it read as a jolt.
+  - **Progress was partly static and partly wrong.** Research showed a fixed five-step list, in which a step that was skipped appeared done. Chat showed one label; drafts, one sentence from the server. A refresh lost everything but the current step's name.
+  - **Drafts showed nothing until saved.** They took 38–51 s in development; the model was 9–18 s of that (VERIFICATION.md).
+- **Decision:**
+  1. **Every task records its own steps** (`progressRecorder`; step ids in `@repo/shared` progress):
+     - **Research:** sources, search, read, write, check.
+     - **Drafts:** research, write, statements, shorten, check, save.
+     - **Chat:** read, compose, write, check.
+
+     Each step records when it began and counts of what it found (never content). A passing notice covers the current step: `retrying` when the AI service turned a request away and it is being sent again, `repairing` for a correction round. Both come from provider-neutral `LlmClient` callbacks (`onRetry`, `onRepair`).
+
+     Writes never hold the work up. They go in the background and in order, collapse to the latest state while one is in flight, and apply only while the task is running. The final steps are written with the outcome, in `completeTask`'s single update. Each attempt starts afresh.
+
+  2. **The interface shows only recorded steps:** done (with what each found), under way, and still to come.
+     - A step the work went past is shown as skipped. A step that happens only sometimes (shortening) is listed only once it happens.
+     - Waiting to start, starting, and waiting to try again ("attempt 2 of 3") are told apart.
+     - A step that runs unusually long gets an honest note. The thresholds come from development timings, measured against the server's clock.
+     - Nothing rotates, and no activity is invented.
+     - A reload reads the same record, so it continues rather than starting over.
+  3. **Chat** sends one more stream event, `context` (how many briefs and sources were read), and records the same steps on its task. A page opened mid-reply shows where the reply has got to. Its text arrives with the saved reply, because the stream belongs to the page that asked. This replaces the "Writing a reply…" placeholder described in ADR-035.
+  4. **Drafts stream into the Studio through the task record.**
+     - The worker streams the model call and writes the text so far to `progress.preview`, at most every 0.5 s and without waiting on the write.
+     - While a draft runs, the Studio reads a one-query endpoint every second (`GET /api/stories/[id]/drafts/progress`). It shows the text read-only, marked "In progress · not yet checked or saved".
+     - The preview is dropped when the task ends, whatever the outcome. Only the validated, checked output is saved as a version.
+     - Drafting stays on Trigger.dev, so it keeps durable retries. There is no new service and no browser connection to Trigger.dev.
+  5. **Streamed text is revealed at a steady pace in the browser** (`components/progress/reveal.ts`).
+     - Text is revealed word by word, at the speed that finishes what has arrived by its deadline: within 1.2 s of arriving, or 0.4 s once the answer is complete. It is never slower than 120 characters a second.
+     - A word still arriving is held back until it is whole.
+     - The caret is solid while words arrive and blinks slowly while it waits.
+     - With reduced motion, text is shown exactly as it arrives and the caret is steady.
+- **Alternatives rejected:**
+  - **Trigger.dev Realtime streams to the browser.** They need public access tokens and make the browser depend on Trigger.dev. The task record already carries progress, and polling already reads it.
+  - **Moving drafts into the web request, like chat.** It would lose durable retries, and a draft can take two calls of up to 240 s each.
+  - **Delaying the whole response, or rotating "thinking" messages.** The brief rules both out. Every label is a step the work recorded.
+- **Trade-offs:**
+  - **The draft preview updates about once a second** (written at most every 0.5 s, read every 1 s). The reveal smooths the steps between updates.
+  - **More database writes per task:** one per step and per preview update. All are off the critical path and apply only to running tasks.
+  - **After a reload, chat shows the steps but not the text** until the reply is saved.
+  - **The "longer than usual" thresholds come from development timings.** Revisit them with production timings.
+- **Also:**
+  - **The draft task makes fewer round trips.** It reads independent records together, doesn't wait on progress writes, and the worker no longer completes the task a second time. Database work per draft fell from 1,490 ms to 963 ms in development (median of 7 rounds, VERIFICATION.md).
+  - **The draft model's reasoning level stays at medium** (`DRAFT_EFFORT`). Measured live: low wrote first words in about 1.2–1.5 s instead of 6–14 s, but its articles were a third to a half the length with fewer statements whose quotes were found. A draft's quotes may now run to 600 characters: two of eight live drafts needed a repair round only because a quote passed 300.
+
+## ADR-038 — Answer from the saved research first; research a genuine gap on its own
+
+- **Status:** Implemented (2026-10-17). Verified with fixture tests, a fixture browser walk and a bounded live check on 2026-10-18 (6 Gemini calls, 3 Tavily credits; VERIFICATION.md). ADR-039 adds deterministic checks of the model's "sufficient".
+- **Context:**
+  - **Chat already read the story's saved research** (the story, its briefs, sources and recent conversation) in one call. A gap, though, needed the editor to click "Research this lead", and the result arrived as a separate briefing.
+  - **Reuse was unreliable.** Only the newest five briefs were read, so the main brief dropped out as follow-ups accumulated. Sources were capped oldest first, so a follow-up's new sources could be cut. Saved points reached the model without how they had been checked, so an unconfirmed point read like a fact.
+  - **Research could hide failures.** A usage-limit error during search was swallowed, and a focused follow-up whose searches all failed still answered from the saved sources. Live on 2026-10-17 at 01:22 UTC, a follow-up made no search at all (the daily search limit was reached) and was saved as an "insufficient" answer.
+- **Decision:**
+  1. **One model call judges the evidence.** The chat answer's structured output starts with `assessment`:
+     - `sufficient`: the saved research answers the question (with editorial judgement where asked), or no search could settle it.
+     - `needs_research`: in scope, but the research doesn't establish the specific answer, and new sources could. The answer still says what the research establishes and what it doesn't.
+     - `out_of_scope`: outside the newsroom's domain. The server's redirect is shown, and the call stops as soon as this value arrives.
+
+     It adds `researchQuestion` and `researchDepth` (focused, or broad only when the editor explicitly asks for a wider look). No separate classification call: the assessment is part of the answer, so it costs no extra latency or tokens beyond a few fields. A separate call was considered and rejected, because it would add a full round trip to every question (3–9 s live) for a judgement the answering call already makes with the same evidence in front of it.
+
+  2. **Rules around the model's decision, never instead of it** (`planFollowUp`, pure, no database call). Research starts only when all of these hold:
+     - the assessment is `needs_research`, with a usable research question
+     - the evidence wasn't judged sufficient (a contradiction spends nothing)
+     - no research on the same question in the last 7 days (strict word overlap, `sameQuestion`)
+     - the daily limits leave room for one model call and the follow-up's search credits
+     - the story isn't busy
+
+     Otherwise the reply says why, and offers to research by hand where that helps.
+
+  3. **The existing focused research does the work.**
+     - After the reply is saved, the chat route records a focused research task keyed by the reply (`research:{depth}:{story}:{reply}`), so a reply can start research at most once.
+     - The route sends a `research` line before `done`, and hands the task to Trigger.dev after the stream closes.
+     - The page follows the task through its record, as for any research, so a refresh or reconnection resumes it without repeating it.
+     - Focused questions use standard depth; broad ones use in-depth (more searches and sources).
+     - Trying again after a failure keeps it a follow-up. A second request for the same reply is refused.
+  4. **One answer per question.**
+     - The follow-up's findings are its brief (`requestKind: followup`, `fromMessageId`: the reply), shown inside that reply as "I checked further": its statements with citations, how fully the new sources answer, what's still to confirm, and how to settle it.
+     - No model call rewords them, and they are never shown again as a separate briefing.
+     - While it runs, the reply shows "I couldn't confirm that in our saved research, so I'm checking further" and the research's recorded steps.
+  5. **Saved research is read reliably** (same queries as before):
+     - the latest two full briefs and eight follow-ups (from up to 30 loaded)
+     - the sources the briefs' points cite labelled first, newest brief first, so new findings are never crowded out
+     - each brief dated, with the question each follow-up asked and how fully its sources answered it
+     - each point marked with how it was checked, and its quote passed on only if that quote was found in its source
+  6. **Failures stay failures.**
+     - A usage limit during search stops the research.
+     - A focused follow-up whose every search failed fails (retried by Trigger.dev) instead of answering "not established".
+     - Partial search failures are recorded on the brief and shown.
+     - A failed model call or database read ends the reply as a failure; research needs a valid answer to start.
+- **Trade-offs:**
+  - **Word overlap misses paraphrases.** The same-question check is deliberately strict, so a rephrased question can be researched again; the model is also told not to ask twice. Skipping needed research would be worse.
+  - **Overhead on the slow path only.** When research is needed, recording the task costs a few database round trips before `done` (the usage check, the lock and the reply's link). The fast path is unchanged.
+  - **The Trigger.dev queue sits in front of every follow-up.** It took 20–30 s in local development on 2026-10-17, mostly cold starts; production is unmeasured.
+  - **Out of scope:** cross-story search, and any new store or index.
+
+## ADR-039 — Evidence accuracy: statement checks and a check on "sufficient", the same on every surface
+
+- **Status:** Implemented (2026-10-18). Verified with parameterized tests across 12 domains and all four surfaces, mutation tests, a replay over every statement stored in `omenai_live_dev`, and a 2-call live re-check (VERIFICATION.md).
+- **Context.** Already in place: one checker for every statement Omenai writes (briefs, focused research, chat, drafts). Labels must name stored sources, quotes must be found word for word in the stored text, and unsourced facts are dropped. ADR-036 added the date-and-figure safeguard; ADR-038 kept failures visible. Missing, found on 2026-10-18:
+  - a real passage about something else counted as support;
+  - words put in someone's mouth weren't compared with the quote;
+  - sources that disagreed went unnoticed;
+  - the model's own "sufficient" was trusted even when its checked statements didn't answer the question (live, twice: "When was she appointed…?" judged sufficient on a quote dating when she joined the institution);
+  - a gap written as a fact ("the sources don't establish the year") was shown with a quote;
+  - streamed text wasn't labelled as unchecked;
+  - digits were compared as text, so "2 January" passed against "2025".
+- **Decision.** Deterministic checks inside the existing checker, plus one judgement function, applied the same way everywhere. Every check can only lower a statement's status or an answer's evidence; none raises it or adds reassurance.
+  1. **Statement checks** (`checkClaim`, `checkClaims`, `flagConflicts`; every surface):
+     - **Details in the quote** (`detail_not_in_excerpt`): every number (matched whole), month or weekday name and relative date ("this week") a fact or attributed statement gives must be in its quote, and so must the words an attributed statement puts in quotation marks.
+     - **A quote about its statement** (`excerpt_unrelated`): the quote must share at least two of the statement's meaningful words, and a fact's quote that names other people or things, but none of those the statement names, is about them. Generic words ("Museum", "Festival", "National") don't count as names. Attributed statements are exempt from the naming rule, because a speaker's words rarely name the speaker.
+     - **Disagreement** (`conflicting`): two statements, each backed by its own found quote, about the same thing (the same kind of event, or neither naming one, and nearly the same words), giving different years, months, days of the month, or figures for the same period. Figures for different years are a series, not a contradiction. Run within each reply, draft and brief section, then across a brief's sections and across a focused answer and its open points.
+  2. **A check on "sufficient"** (`judgeEvidence`; chat and focused research). It lowers `sufficient` to `partial` and records why (`evidenceCheck`):
+     - `conflicting`: its statements disagree;
+     - `no_checked_facts`: for a factual question, nothing it says was checked, or it only says what isn't known;
+     - `asked_detail_unchecked`: the question asks when, how many or how much, who or where, and no checked statement gives that kind of detail for the event or subject asked about. Event kinds come from a domain-neutral vocabulary (`eventsNamed`); asides that describe the subject (", the firm behind…") are ignored when reading the question's event.
+
+     In chat, a lowered answer to a factual question becomes `needs_research` and goes through ADR-038's rules, with the editor's question as the research question if the model gave none. Judgement questions (editorial scope) are held only to the first two rules.
+
+  3. **One shared vocabulary** (`research/terms.ts`): stop words, stemming, names, date words, event kinds and the culture words that never identify anything (moved unchanged from the relevance check). No check names a person, institution, story, date or expected answer.
+  4. **Prompts.** What the sources don't establish is its own open question, never part of a fact. The substitution examples cover several domains (an announcement is not an opening, a nomination is not a win, an estimate is not a sale price). Saved points whose sources disagree are labelled so for the chat model, and drafts may state neither version of an unsettled detail.
+  5. **Presentation.** Each status says what the check found ("Found, but this passage doesn't seem to be about this point"), never that a point is verified. A lowered judgement is followed by its reason ("No quote I found confirms the exact date, figure or name asked about"). Streamed text is labelled "Writing · not yet checked"; the Studio preview already said "not yet checked or saved".
+- **No verification model call.** A second call to judge support semantically was considered and not built. It would add a full round trip (3–9 s live) to every chat answer and brief, and spend calls under a 60-a-day limit, for a judgement that is still not guaranteed. On the stored live answers, the deterministic rules lowered both false "sufficient" answers and none of the six correct ones. Revisit it if production data show misses that lexical rules can't catch.
+- **Trade-offs and limits.** Lexical and English-centred. The event vocabulary is finite: an event described in other words counts as not answering (research runs, which is the cautious side), and an event word used as the object of another verb ("agreed to return") reads as that event. Names aren't typed, so a place can pass for a person. A fair paraphrase sharing fewer than two words is flagged. The conflict check misses contradictions worded differently and can flag two measures of one subject. Statements the model didn't list aren't checked. Passing every check proves nothing about truth: the quote is shown beside each statement for the editor to judge.

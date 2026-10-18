@@ -12,6 +12,10 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
+    },
+    "./fixtures": {
+      "types": "./dist/testing/scenarios/index.d.ts",
+      "default": "./dist/testing/scenarios/index.js"
     }
   },
   "scripts": {
@@ -21,7 +25,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "owner:invite": "node --env-file-if-exists=../../apps/web/.env.local dist/cli/owner-invite.js",
-    "db:indexes": "node --env-file-if-exists=../../apps/web/.env.local dist/cli/ensure-indexes.js"
+    "db:indexes": "node --env-file-if-exists=../../apps/web/.env.local dist/cli/ensure-indexes.js",
+    "db:seed-fixtures": "node --env-file-if-exists=../../apps/web/.env.local dist/cli/seed-fixtures.js",
+    "env:check": "node dist/cli/check-env.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
@@ -32,6 +38,7 @@
     "better-auth": "^1.7.7",
     "mongodb": "~7.7.0",
     "mongoose": "^9.11.2",
+    "resend": "^6.33.0",
     "zod": "catalog:"
   },
   "devDependencies": {

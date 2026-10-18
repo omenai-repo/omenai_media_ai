@@ -17,6 +17,6 @@ export function proxy(request: NextRequest) {
 export const config = {
   // Everything except public pages, API routes (which answer 401 themselves) and static assets.
   matcher: [
-    '/((?!login|invite|api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|webp|ico)$).*)',
+    '/((?!login|invite|forgot-password|reset-password|api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|webp|ico)$).*)',
   ],
 };

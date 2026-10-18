@@ -85,9 +85,16 @@ describe('LlmClient.generateObject', () => {
       { text: '{"pillar":"fashion","score":9}' },
       { text: '{"pillar":"art","score":5}' },
     ]);
-    const result = await llm.generateObject({ ...base, tier: 'primary' });
+    const repairs: number[] = [];
+    const result = await llm.generateObject({
+      ...base,
+      tier: 'primary',
+      // Lets progress say the response is being redone, before the second request goes out.
+      onRepair: () => repairs.push(requests.length),
+    });
 
     expect(result.data).toEqual({ pillar: 'art', score: 5 });
+    expect(repairs).toEqual([1]);
     const repair = requests[1]!.messages.at(-1)!.content;
     expect(repair).toContain('pillar');
     expect(repair).toContain('score');
@@ -135,5 +142,184 @@ describe('LlmClient.generateText', () => {
     });
     expect(result.data).toBe('A considered paragraph.');
     expect(requests[0]).toMatchObject({ model: 'deep-model', effort: 'medium' });
+  });
+});
+
+/** A provider that streams `text` in pieces, pausing between them (and honouring aborts). */
+function streamingProvider(text: string, options: { pieces?: number; pauseMs?: number } = {}) {
+  const requests: ProviderRequest[] = [];
+  const provider: LlmProvider = {
+    name: 'gemini',
+    generate: () => Promise.reject(new Error('the streamed path was expected')),
+    async *stream(request) {
+      requests.push(request);
+      const size = Math.ceil(text.length / (options.pieces ?? 4));
+      for (let at = 0; at < text.length; at += size) {
+        await new Promise((resolve) => setTimeout(resolve, options.pauseMs ?? 5));
+        if (request.signal?.aborted) throw new Error('aborted');
+        yield text.slice(at, at + size);
+      }
+      return {
+        text,
+        model: request.model,
+        stopReason: 'complete',
+        usage,
+        attempts: { attempts: 2, retryStatuses: [503] },
+      };
+    },
+  };
+  return { provider, requests };
+}
+
+describe('LlmClient.streamObject', () => {
+  it('passes text on as it arrives, then validates the whole answer and records the timing', async () => {
+    const { provider, requests } = streamingProvider('{"pillar":"art","score":4}', { pieces: 4 });
+    const records: LlmUsageRecord[] = [];
+    let budgetChecks = 0;
+    const llm = createLlmClient({
+      provider,
+      models: { triage: 'fast-model', primary: 'main-model', escalation: 'deep-model' },
+      recordUsage: (record) => {
+        records.push(record);
+        return Promise.resolve();
+      },
+      beforeCall: () => {
+        budgetChecks += 1;
+        return Promise.resolve();
+      },
+    });
+    const seen: string[] = [];
+    let resolved = false;
+    const call = llm
+      .streamObject({ ...base, tier: 'primary', onText: (text) => seen.push(text) })
+      .then((result) => {
+        resolved = true;
+        return result;
+      });
+    const result = await call;
+    expect(resolved).toBe(true);
+    expect(seen.length).toBe(4);
+    expect(seen.at(-1)).toBe('{"pillar":"art","score":4}');
+    expect(result.data).toEqual({ pillar: 'art', score: 4 });
+    expect(budgetChecks).toBe(1);
+    expect(requests[0]).toMatchObject({ model: 'main-model', effort: 'medium' });
+    expect(requests[0]!.signal).toBeInstanceOf(AbortSignal);
+    expect(records[0]).toMatchObject({
+      outcome: 'ok',
+      attempts: 2,
+      retryStatuses: [503],
+      firstChunkMs: expect.any(Number) as number,
+      latencyMs: expect.any(Number) as number,
+    });
+  });
+
+  it('repairs a streamed answer that fails validation with one normal call', async () => {
+    const { provider } = streamingProvider('{"pillar":"fashion","score":9}');
+    const repaired = {
+      ...provider,
+      generate: () =>
+        Promise.resolve({
+          text: '{"pillar":"ideas","score":2}',
+          model: 'main-model',
+          stopReason: 'complete' as const,
+          usage,
+        }),
+    };
+    const records: LlmUsageRecord[] = [];
+    const llm = createLlmClient({
+      provider: repaired,
+      models: { triage: 'a', primary: 'main-model', escalation: 'c' },
+      recordUsage: (record) => {
+        records.push(record);
+        return Promise.resolve();
+      },
+    });
+    const result = await llm.streamObject({ ...base, tier: 'primary', onText: () => undefined });
+    expect(result.data).toEqual({ pillar: 'ideas', score: 2 });
+    expect(records).toHaveLength(2);
+    expect(records[1]!.repairReason).toMatch(/pillar/);
+  });
+
+  it('hands a whole answer over once when the provider cannot stream', async () => {
+    const { llm } = client([{ text: '{"pillar":"art","score":1}' }]);
+    const seen: string[] = [];
+    await llm.streamObject({ ...base, tier: 'primary', onText: (text) => seen.push(text) });
+    expect(seen).toEqual(['{"pillar":"art","score":1}']);
+  });
+
+  it('cancels when the caller aborts, and records it', async () => {
+    const { provider } = streamingProvider('{"pillar":"art","score":4}', {
+      pieces: 8,
+      pauseMs: 20,
+    });
+    const records: LlmUsageRecord[] = [];
+    const llm = createLlmClient({
+      provider,
+      models: { triage: 'a', primary: 'b', escalation: 'c' },
+      recordUsage: (record) => {
+        records.push(record);
+        return Promise.resolve();
+      },
+    });
+    const controller = new AbortController();
+    const error = await llm
+      .streamObject({
+        ...base,
+        tier: 'primary',
+        signal: controller.signal,
+        onText: () => controller.abort(),
+      })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: 'aborted', retryable: false });
+    expect(records[0]).toMatchObject({ outcome: 'error', errorKind: 'aborted' });
+  });
+});
+
+describe('the hard deadline of a call', () => {
+  it('returns at the deadline even when the provider ignores aborts and keeps retrying', async () => {
+    // Retries forever, sleeping between attempts, and never looks at the abort signal.
+    const stubborn: LlmProvider = {
+      name: 'gemini',
+      generate: async () => {
+        for (;;) await new Promise((resolve) => setTimeout(resolve, 50));
+      },
+    };
+    const records: LlmUsageRecord[] = [];
+    const llm = createLlmClient({
+      provider: stubborn,
+      models: { triage: 'a', primary: 'b', escalation: 'c' },
+      recordUsage: (record) => {
+        records.push(record);
+        return Promise.resolve();
+      },
+    });
+    const started = Date.now();
+    const error = await llm
+      .generateObject({ ...base, tier: 'primary', deadlineAt: Date.now() + 200 })
+      .catch((e: unknown) => e);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(error).toMatchObject({ kind: 'timeout', retryable: true });
+    expect(records).toEqual([expect.objectContaining({ outcome: 'error', errorKind: 'timeout' })]);
+  });
+
+  it('caps one attempt at the time left, and skips a repair round there is no time for', async () => {
+    const { llm, requests, records } = client([
+      { text: '{"pillar":"fashion","score":9}' },
+      { text: '{"pillar":"art","score":5}' },
+    ]);
+    const error = await llm
+      .generateObject({
+        ...base,
+        tier: 'primary',
+        deadlineAt: Date.now() + 1_000,
+        attemptTimeoutMs: 60_000,
+        minRepairMs: 5_000,
+      })
+      .catch((e: unknown) => e);
+    expect(requests[0]!.attemptTimeoutMs).toBeLessThanOrEqual(1_000);
+    expect(requests).toHaveLength(1);
+    expect(records).toHaveLength(1);
+    expect(error).toMatchObject({ kind: 'invalid_output' });
+    expect((error as Error).message).toMatch(/no time left for a repair/);
   });
 });

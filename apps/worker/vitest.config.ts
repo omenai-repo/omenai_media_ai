@@ -1,0 +1,12 @@
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    // Automated tests run in their own runtime (an in-memory database). A test that exercises a
+    // fixture path opts in explicitly with OMENAI_RUNTIME=fixtures and a *_fixtures name.
+    env: { OMENAI_RUNTIME: 'test' },
+    // DB-backed suites start an in-memory replica set.
+    hookTimeout: 120_000,
+    testTimeout: 30_000,
+  },
+});

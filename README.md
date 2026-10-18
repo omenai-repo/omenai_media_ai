@@ -34,10 +34,15 @@ packages/
 corepack enable
 pnpm install
 cp apps/web/.env.example apps/web/.env.local     # then fill in the values
+cp apps/worker/.env.example apps/worker/.env     # same database name and runtime as the web app
+pnpm env:check                                   # both sides agree; prints no secrets
 pnpm db:indexes                                  # create MongoDB indexes
 pnpm owner:invite you@example.com                # first owner: prints a one-time invitation link
+pnpm --filter @repo/worker dev:trigger           # background worker (separate terminal)
 pnpm dev
 ```
+
+Local development runs against real services by default: `OMENAI_RUNTIME=live-dev`, the Atlas `omenai_live_dev` database, Gemini, Tavily and the Trigger.dev development worker, within hard daily usage limits. See [docs/LIVE_DEVELOPMENT.md](docs/LIVE_DEVELOPMENT.md).
 
 Open the printed invitation link and set a password. Later users are invited by an owner from the
 app. `pnpm owner:invite` refuses to run once an active owner exists, and
@@ -48,6 +53,9 @@ there is no HTTP route for creating owners. `GET /api/health` reports service st
 `apps/web/.env.example` and `apps/worker/.env.example` document every variable. Real `.env`
 files are gitignored, so never commit secrets. A missing required variable raises a
 `ConfigError` that names it. The app still builds without secrets.
+
+`OMENAI_RUNTIME` (`live-dev`, `fixtures` or `production`) and `MONGODB_DB_NAME` are required in
+both files and must agree with each other: neither is ever assumed. `pnpm env:check` verifies it.
 
 - Variables without the `NEXT_PUBLIC_` prefix are only available on the server (route handlers and
   server components).
@@ -74,6 +82,31 @@ Run these from the repository root. Turborepo orders them by dependency (for exa
 | `pnpm check`                        | Everything CI should run: format check, lint, typecheck, test, build |
 | `pnpm db:indexes`                   | Create or update MongoDB indexes (idempotent; run on deploy)         |
 | `pnpm owner:invite <email>`         | Issue the first owner's invitation link (refuses if an owner exists) |
+| `pnpm db:seed-fixtures`             | Fill a `*_fixtures` database with fixture runs for local UI work     |
+| `pnpm env:check`                    | Check that web and worker configuration agree (no secrets printed)   |
+
+### Working on the dashboard without API spend (fixtures)
+
+```bash
+OMENAI_RUNTIME=fixtures MONGODB_DB_NAME=omenai_fixtures pnpm db:seed-fixtures            # "full" scenario
+OMENAI_RUNTIME=fixtures MONGODB_DB_NAME=omenai_fixtures pnpm db:seed-fixtures -- empty   # a brand-new newsroom
+OMENAI_RUNTIME=fixtures MONGODB_DB_NAME=omenai_fixtures pnpm dev                          # sign in as owner@fixtures.example
+```
+
+Command-line variables override the env files, so this never needs them edited. The fixtures
+runtime is the only one in which scripted answers, the fake search, in-process background work or
+simulated email are used; the seed refuses anything else, so real data is never touched.
+The command prints each seeded edition and the sign-in accounts (password `fixture-password-only`).
+While in the fixtures runtime every page shows a "Development fixtures" banner, and fixture usage
+is labelled simulated. To see the invitation "emailed" or "email failed" states without sending
+mail, add `EMAIL_TRANSPORT=fixture-sent` or `fixture-failed` (refused in any other runtime).
+Fixture content is invented (example.* domains) and must never be presented as reporting.
+Fixture preview images are loaded from picsum.photos, so they need network access; without it the
+cards show the typographic fallback.
+
+The interface is a single light theme. Shared editorial components live in
+`apps/web/src/components/editorial/`, and every editor-facing word for an internal state comes
+from `copy.ts` there. Change wording in that file rather than in individual pages.
 
 Background tasks run with the Trigger.dev CLI: `npx trigger.dev@latest login` once, then
 `pnpm --filter @repo/worker dev:trigger` (reads `apps/worker/.env`).

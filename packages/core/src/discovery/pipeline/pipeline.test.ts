@@ -7,14 +7,8 @@ import { weightedTotal, type DimensionScores } from '@repo/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { getModels } from '../../db/models.js';
-import {
-  createFakeSearch,
-  DAY1,
-  DAY2,
-  fixtureEvaluation,
-  scores,
-} from '../../testing/discovery-fixtures.js';
-import { createScriptedLlm, promptArticles, promptStories } from '../../testing/fake-llm.js';
+import { createFakeSearch, DAY1, DAY2 } from '../../testing/discovery-fixtures.js';
+import { createFixtureLlm as createLlm } from '../../testing/fixture-script.js';
 import { startTestDatabase, type TestDatabase } from '../../testing/index.js';
 import { readDiscoveryConfig } from '../config.js';
 import { getRun } from '../runs.js';
@@ -34,119 +28,6 @@ beforeEach(async () => {
 const DAY1_RUN = 'daily-discovery:2026-10-15';
 const DAY2_RUN = 'daily-discovery:2026-10-18';
 const config = { ...readDiscoveryConfig({}), maxQueries: 2 };
-
-function evaluationFor(prompt: string, tier: string) {
-  const lead = promptArticles(prompt)[0]?.headline ?? '';
-  const headline = lead;
-  if (/Gele/.test(lead))
-    return fixtureEvaluation(
-      scores(4, { human_interest_access: 3, audience_relevance: 3, commercial_adjacency: 2 }),
-      {
-        headline,
-        geography: [
-          { country: 'Nigeria', city: 'Lagos', region: 'west_africa', confidence: 'high' },
-        ],
-      },
-    );
-  if (/10 art exhibitions/.test(lead))
-    return fixtureEvaluation(scores(3), {
-      headline,
-      exclusions: [
-        { id: 'thin_listicle_seo', evidence: 'Ten openings, one line each.', exception: null },
-      ],
-    });
-  if (/whisky/.test(lead))
-    // Scores 100, yet gates must still reject it.
-    return fixtureEvaluation(scores(5), {
-      headline,
-      exclusions: [
-        {
-          id: 'generic_luxury_promotion',
-          evidence: 'Sponsored brand event copy.',
-          exception: null,
-        },
-        { id: 'press_release_repackaged', evidence: 'Mirrors the brand release.', exception: null },
-      ],
-    });
-  if (/punk/.test(lead))
-    return tier === 'escalation'
-      ? fixtureEvaluation(scores(3, { commercial_adjacency: 1 }), { headline })
-      : fixtureEvaluation(scores(3, { originality: 4, commercial_adjacency: 1 }), { headline });
-  if (/Zeitz MOCAA opens/.test(lead))
-    return fixtureEvaluation(
-      scores(4, { cultural_significance: 5, visual_potential: 5, commercial_adjacency: 3 }),
-      {
-        headline,
-        entities: ['Zeitz MOCAA', 'Kwame Asante'],
-      },
-    );
-  if (/Unseen archive/.test(lead))
-    return fixtureEvaluation(scores(4, { cultural_significance: 5 }), {
-      headline,
-      criticalIssues: [
-        {
-          kind: 'rights',
-          severity: 'hold',
-          evidence: 'Photographs of unknown provenance and rights.',
-        },
-      ],
-    });
-  if (/auction record/.test(lead))
-    return fixtureEvaluation(scores(4, { cultural_significance: 5, timeliness: 5 }), {
-      headline,
-      noveltyStatus: 'developing',
-      timeliness: 'urgent',
-    });
-  throw new Error(`No fixture evaluation for "${lead}"`);
-}
-
-function createLlm() {
-  return createScriptedLlm({
-    triage: (prompt) => ({
-      articles: promptArticles(prompt).map((a) => ({
-        ref: a.ref,
-        inScope: !/For Sale/.test(a.headline),
-        reason: /For Sale/.test(a.headline)
-          ? 'A sales listing, not a story.'
-          : 'Cultural development.',
-        eventSummary: a.headline,
-        eventDate: null,
-        entities: [],
-        places: [],
-        exclusionSignals: [],
-      })),
-    }),
-    cluster: (prompt) => {
-      const stories = promptStories(prompt);
-      const asante = stories.find((s) => /Kwame Asante/.test(s.headline))?.ref ?? null;
-      return {
-        // The model leaves syndicated copies apart; deterministic pre-grouping must merge them.
-        groups: promptArticles(prompt).map((a) => {
-          if (/draws crowds/.test(a.headline))
-            return {
-              items: [a.ref],
-              relation: 'same_development_no_new_info',
-              relatedStory: asante,
-              signature: 'Asante retrospective',
-            };
-          if (/auction record/.test(a.headline))
-            return {
-              items: [a.ref],
-              relation: 'new_development',
-              relatedStory: asante,
-              signature: 'Asante auction record',
-            };
-          return { items: [a.ref], relation: 'new', relatedStory: null, signature: a.headline };
-        }),
-      };
-    },
-    evaluate: evaluationFor,
-    change: () => ({
-      changeKind: 'updated_reporting',
-      summary: 'Should not be needed in these fixtures.',
-    }),
-  });
-}
 
 const day1Hits = Object.values(DAY1);
 
@@ -401,5 +282,42 @@ describe('late evaluations', () => {
     });
     const after = await storyByHeadline(/Gele/);
     expect(after.evaluation?.outcome).toBe('gate_reject');
+  });
+});
+
+describe('story imagery', () => {
+  it('captures preview images without affecting prompts, scores or ranking', async () => {
+    const run = async (hits: typeof day1Hits) => {
+      await db.reset();
+      const search = createFakeSearch(hits);
+      const { llm, calls } = createLlm();
+      const result = await runDiscoveryInline({
+        runKey: DAY1_RUN,
+        trigger: 'schedule',
+        owner: 'w',
+        deps: { llm, search: search.client, config, now: () => new Date('2026-10-15T05:00:00Z') },
+      });
+      const { Story } = await getModels();
+      const headlines = await Promise.all(
+        (result?.shortlist ?? []).map(
+          async (s) => (await Story.findById(s.storyId).lean())?.headline,
+        ),
+      );
+      return { result, calls, headlines };
+    };
+
+    const withImages = await run(day1Hits);
+    const { SourceArticle } = await getModels();
+    const gele = await SourceArticle.findOne({ originalHeadline: /Gele, joint/ }).lean();
+    // The logo listed first was skipped; the photograph was kept, rights unverified.
+    expect(gele?.image?.url).toContain('picsum.photos');
+    expect(gele?.image?.rights).toBe('unverified');
+    expect(withImages.calls.some((c) => /picsum|cdn\.example/.test(c.prompt))).toBe(false);
+
+    const withoutImages = await run(day1Hits.map((h) => ({ ...h, images: [] })));
+    expect(withoutImages.headlines).toEqual(withImages.headlines);
+    expect(withoutImages.result?.shortlist.map((s) => s.score)).toEqual(
+      withImages.result?.shortlist.map((s) => s.score),
+    );
   });
 });

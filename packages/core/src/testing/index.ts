@@ -41,3 +41,5 @@ export async function startTestDatabase(): Promise<TestDatabase> {
     },
   };
 }
+
+export { seedFixtureNewsroom } from './seed.js';

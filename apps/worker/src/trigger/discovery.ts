@@ -3,6 +3,7 @@ import {
   claimRun,
   completeTask,
   countRunEvaluations,
+  deferRun,
   discoveryEvaluatePayloadSchema,
   discoveryRunPayloadSchema,
   ensureTask,
@@ -10,21 +11,22 @@ import {
   failRun,
   failTask,
   finalizeRun,
+  getDatabaseName,
   getLlmClient,
   getRun,
   getSearchClient,
-  LlmError,
+  isPermanentError,
   markEvaluationFailed,
+  MAX_RUN_ATTEMPTS,
   objectId,
   prepareRun,
   readDiscoveryConfig,
   renewLease,
-  SearchError,
   shouldCloseCandidateSet,
   startRun,
   startTaskAttempt,
   TASK_IDS,
-  ConfigError,
+  TASK_MAX_ATTEMPTS,
   type DiscoveryConfig,
   type DiscoveryDeps,
 } from '@repo/core';
@@ -37,7 +39,9 @@ import {
   wait,
 } from '@trigger.dev/sdk';
 
-const EVALUATE_MAX_ATTEMPTS = 5;
+import { assertSameEnvironment } from './guard.js';
+
+const EVALUATE_MAX_ATTEMPTS = TASK_MAX_ATTEMPTS['discovery.evaluate'];
 const POLL_SECONDS = 60;
 
 function createDeps(): DiscoveryDeps {
@@ -58,12 +62,7 @@ function leaseConfig(config: DiscoveryConfig) {
   };
 }
 
-/** Errors no retry can fix: bad configuration or credentials, invalid requests, refusals. */
-function isPermanent(error: unknown): boolean {
-  if (error instanceof ConfigError) return true;
-  if (error instanceof LlmError || error instanceof SearchError) return !error.retryable;
-  return false;
-}
+const isPermanent = isPermanentError;
 
 /**
  * Evaluates one candidate story. Transient failures (rate limits, outages) are retried with
@@ -83,7 +82,11 @@ export const discoveryEvaluate = task({
     randomize: true,
   },
   run: async (rawPayload: unknown, { ctx }) => {
-    const { runKey, storyId } = discoveryEvaluatePayloadSchema.parse(rawPayload);
+    const payload = discoveryEvaluatePayloadSchema.safeParse(rawPayload);
+    if (!payload.success) throw new AbortTaskRunError('Invalid assessment payload.');
+    const { runKey, storyId } = payload.data;
+    // Started by the run orchestrator in this same worker, so only the environment is checked.
+    assertSameEnvironment(ctx.environment.type);
     const key = `discovery.evaluate:${runKey}:${storyId}`;
     await ensureTask({ key, kind: 'discovery.evaluate', runKey, storyId: objectId(storyId) });
     await startTaskAttempt(key, ctx.attempt.number, ctx.run.id);
@@ -112,9 +115,18 @@ export const discoveryEvaluate = task({
 export const discoveryRun = task({
   id: TASK_IDS.discoveryRun,
   concurrency: { total: 1 },
-  retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 30_000, maxTimeoutInMs: 300_000 },
+  // One attempt per claim the run allows (claimRun refuses more).
+  retry: {
+    maxAttempts: MAX_RUN_ATTEMPTS,
+    factor: 2,
+    minTimeoutInMs: 30_000,
+    maxTimeoutInMs: 300_000,
+  },
   run: async (rawPayload: unknown, { ctx }) => {
-    const { runKey } = discoveryRunPayloadSchema.parse(rawPayload);
+    const payload = discoveryRunPayloadSchema.safeParse(rawPayload);
+    if (!payload.success) throw new AbortTaskRunError('Invalid discovery run payload.');
+    const { runKey, database } = payload.data;
+    assertSameEnvironment(ctx.environment.type, database);
     const deps = createDeps();
     const owner = ctx.run.id;
     const run = await claimRun({
@@ -187,8 +199,13 @@ export const discoveryRun = task({
       return { runKey, status: 'completed' as const, shortlisted: result.shortlist.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await failRun({ runKey, owner, stage: 'run', message });
-      if (isPermanent(error)) throw new AbortTaskRunError(message);
+      // Only the last attempt, or an error retrying can't fix, fails the run. Before that it
+      // goes back to queued for the next attempt, which resumes after its last completed stage.
+      if (isPermanent(error) || ctx.attempt.number >= MAX_RUN_ATTEMPTS) {
+        await failRun({ runKey, owner, stage: 'run', message });
+        throw new AbortTaskRunError(message);
+      }
+      await deferRun({ runKey, owner, stage: 'run', message });
       throw error;
     }
   },
@@ -202,11 +219,12 @@ export const discoveryRun = task({
 export const dailyDiscovery = schedules.task({
   id: TASK_IDS.dailyDiscovery,
   cron: { pattern: '0 0 * * *', timezone: 'America/Chicago', environments: ['PRODUCTION'] },
-  run: async (payload) => {
+  run: async (payload, { ctx }) => {
+    assertSameEnvironment(ctx.environment.type);
     const runKey = dailyRunKey(payload.timestamp);
     await startRun({ runKey, trigger: 'schedule' });
     const handle = await discoveryRun.trigger(
-      { runKey },
+      { runKey, database: getDatabaseName() },
       { idempotencyKey: await idempotencyKeys.create(runKey, { scope: 'global' }) },
     );
     logger.info('Daily discovery triggered', { runKey, run: handle.id });

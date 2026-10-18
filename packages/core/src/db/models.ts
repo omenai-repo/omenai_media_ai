@@ -1,7 +1,10 @@
 import { getConnection } from './client.js';
 import { aiUsageModel } from './models/ai-usage.js';
 import { authSessionModel, authUserModel } from './models/auth.js';
+import { chatMessageModel } from './models/chat-message.js';
+import { draftVersionModel } from './models/draft-version.js';
 import { invitationModel } from './models/invitation.js';
+import { researchBriefModel } from './models/research-brief.js';
 import { sourceArticleModel } from './models/source-article.js';
 import { storyModel } from './models/story.js';
 import { taskModel } from './models/task.js';
@@ -19,6 +22,9 @@ export async function getModels() {
     Story: storyModel(connection),
     WorkflowRun: workflowRunModel(connection),
     Task: taskModel(connection),
+    ResearchBrief: researchBriefModel(connection),
+    ChatMessage: chatMessageModel(connection),
+    DraftVersion: draftVersionModel(connection),
   };
 }
 
@@ -56,6 +62,9 @@ export async function ensureIndexes(): Promise<void> {
     models.Story,
     models.WorkflowRun,
     models.Task,
+    models.ResearchBrief,
+    models.ChatMessage,
+    models.DraftVersion,
   ]) {
     await model.syncIndexes();
   }

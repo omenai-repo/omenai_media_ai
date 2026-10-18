@@ -98,7 +98,12 @@ describe('Tavily search client', () => {
   it('extracts in batches of 20 and keeps per-URL failures', async () => {
     extract.mockImplementation((urls: string[]) =>
       Promise.resolve({
-        results: urls.slice(1).map((url) => ({ url, title: null, rawContent: `text of ${url}` })),
+        results: urls.slice(1).map((url) => ({
+          url,
+          title: null,
+          rawContent: `text of ${url}`,
+          images: [`${url}/photo.jpg`],
+        })),
         failedResults: [{ url: urls[0], error: 'blocked' }],
         usage: { credits: 1 },
       }),
@@ -107,6 +112,11 @@ describe('Tavily search client', () => {
     const { pages, failed } = await client.extract(urls);
     expect(extract).toHaveBeenCalledTimes(2);
     expect(pages).toHaveLength(23);
+    expect(pages[0]?.images).toEqual(['https://a.example/1/photo.jpg']);
+    expect(extract).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ includeImages: true }),
+    );
     expect(failed.map((f) => f.url)).toEqual(['https://a.example/0', 'https://a.example/20']);
   });
 

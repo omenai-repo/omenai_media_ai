@@ -1,4 +1,5 @@
 import { ConfigError, optionalEnv, requireEnv } from '../config/env.js';
+import { readRuntime } from '../config/runtime.js';
 import { LLM_PROVIDERS, type LlmProviderName, type ModelTier } from './types.js';
 
 /**
@@ -39,6 +40,9 @@ export function readLlmConfig(): LlmConfig {
     throw new ConfigError('LLM_PROVIDER', `expected one of ${LLM_PROVIDERS.join(', ')}`);
   }
   const name = provider as LlmProviderName;
+  // Live development runs on Gemini; moving to another provider is its own approved milestone.
+  if (name !== 'gemini' && readRuntime() === 'live-dev')
+    throw new ConfigError('LLM_PROVIDER', 'live development uses gemini');
   const prefix = name.toUpperCase();
   const defaults = DEFAULT_MODELS[name];
 

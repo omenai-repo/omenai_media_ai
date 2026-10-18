@@ -4,8 +4,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 const trigger = vi.fn();
 const requireUser = vi.fn();
+const after = vi.fn();
 
-vi.mock('next/server', () => ({ connection: () => Promise.resolve() }));
+vi.mock('next/server', () => ({ connection: () => Promise.resolve(), after }));
 // No real Trigger.dev call is made in tests.
 vi.mock('@trigger.dev/sdk', () => ({ tasks: { trigger } }));
 vi.mock('@/lib/session', () => ({ requireUser }));
@@ -23,6 +24,8 @@ beforeEach(async () => {
   await db.reset();
   trigger.mockReset().mockResolvedValue({ id: 'run_test_123' });
   requireUser.mockReset();
+  after.mockReset();
+  vi.unstubAllEnvs();
   process.env.TRIGGER_SECRET_KEY = 'tr_dev_test';
 });
 
@@ -44,9 +47,10 @@ describe('POST /api/runs', () => {
     expect(response.status).toBe(202);
     const body = (await response.json()) as { runKey: string };
     expect(body.runKey).toMatch(/^manual:/);
+    // The worker is told which database the run belongs to, and refuses any other.
     expect(trigger).toHaveBeenCalledWith(
       'discovery-run',
-      { runKey: body.runKey },
+      { runKey: body.runKey, database: 'omenai_test' },
       { idempotencyKey: body.runKey },
     );
     const { WorkflowRun } = await getModels();
@@ -78,5 +82,35 @@ describe('POST /api/runs', () => {
     expect(((await response.json()) as { error: { message: string } }).error.message).toContain(
       'TRIGGER_SECRET_KEY',
     );
+  });
+
+  it('against a fixtures database, runs the scripted search in-process and never calls Trigger.dev', async () => {
+    requireUser.mockResolvedValue({ id: 'owner-1', role: 'owner' });
+    vi.stubEnv('OMENAI_RUNTIME', 'fixtures');
+    vi.stubEnv('MONGODB_DB_NAME', 'omenai_fixtures');
+    delete process.env.TRIGGER_SECRET_KEY;
+    const response = await post();
+    expect(response.status).toBe(202);
+    expect(trigger).not.toHaveBeenCalled();
+    // Handed to the in-process fixture executor after the response.
+    expect(after).toHaveBeenCalledTimes(1);
+    const { runKey } = (await response.json()) as { runKey: string };
+    const { WorkflowRun } = await getModels();
+    expect(await WorkflowRun.findOne({ runKey }).lean()).toMatchObject({
+      trigger: 'manual',
+      requestedBy: 'owner-1',
+      triggerRunId: null,
+    });
+  });
+
+  it('refuses a Trigger.dev key from another environment before recording anything', async () => {
+    requireUser.mockResolvedValue({ id: 'owner-1', role: 'owner' });
+    vi.stubEnv('OMENAI_RUNTIME', 'live-dev');
+    process.env.TRIGGER_SECRET_KEY = 'tr_prod_example';
+    const response = await post();
+    expect(response.status).toBe(503);
+    expect(trigger).not.toHaveBeenCalled();
+    const { WorkflowRun } = await getModels();
+    expect(await WorkflowRun.countDocuments()).toBe(0);
   });
 });
