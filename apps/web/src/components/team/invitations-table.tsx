@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/editorial/confirm-dialog';
 import { INVITATION_STATUS, roleLabel } from '@/components/editorial/copy';
-import { Disclosure, StatusLabel } from '@/components/editorial/primitives';
+import { Disclosure } from '@/components/editorial/primitives';
 import { Button } from '@/components/ui/button';
 
 import { teamRequest } from './api';
@@ -78,17 +78,27 @@ export function InvitationsTable({ invitations }: { invitations: InvitationRow[]
     return (
       <li
         key={invitation.id}
-        className="grid gap-x-6 gap-y-2 px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center"
+        className="grid gap-x-6 gap-y-2 px-4 py-4 sm:grid-cols-[1fr_auto] sm:items-center sm:px-5.5"
       >
         <div className="min-w-0">
-          <p className="break-all text-ink">{invitation.email}</p>
+          <p className="font-medium break-all text-ink">{invitation.email}</p>
           <p className="meta">
             As {roleLabel(invitation.role).toLowerCase()} · sent {invitation.created}.{' '}
             {nextStep(invitation)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <StatusLabel tone={status.tone}>{status.label}</StatusLabel>
+          {/* Only an expired link is worth colour: it needs re-sending. */}
+          {invitation.state === 'expired' ? (
+            <span className="inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-amber">
+              <span aria-hidden className="size-1.5 rounded-full bg-current" />
+              {status.label}
+            </span>
+          ) : (
+            <span className="inline-flex h-6 items-center rounded-full border border-tag-line px-2.5 text-xs font-medium text-graphite">
+              {status.label}
+            </span>
+          )}
           {invitation.state === 'pending' ? (
             <Button variant="quiet" disabled={pending} onClick={() => setWithdrawing(invitation)}>
               Withdraw
@@ -107,7 +117,9 @@ export function InvitationsTable({ invitations }: { invitations: InvitationRow[]
   return (
     <div className="grid gap-4">
       {outstanding.length ? (
-        <ul className="surface divide-y divide-hairline-soft">{outstanding.map(row)}</ul>
+        <ul className="divide-y divide-hairline-soft overflow-hidden rounded-[18px] border border-hairline">
+          {outstanding.map(row)}
+        </ul>
       ) : (
         <p className="meta">No invitations are waiting to be accepted.</p>
       )}

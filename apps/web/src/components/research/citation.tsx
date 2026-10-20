@@ -89,10 +89,10 @@ export function Citation({
     <Popover>
       <PopoverTrigger
         className={cn(
-          'mx-0.5 inline-flex translate-y-[-1px] items-center gap-0.5 rounded-[5px] border px-1 align-baseline font-sans text-[0.7rem] leading-4 font-medium tabular-nums transition-colors',
+          'mx-0.5 inline-flex translate-y-[-1px] items-center gap-0.5 rounded-[5px] border px-1.25 align-baseline font-sans text-[0.6875rem] leading-4 font-semibold tabular-nums transition-colors data-[state=open]:shadow-[0_0_0_3px_var(--signal)]',
           unlocated
-            ? 'border-amber/40 bg-amber-wash text-amber hover:border-amber'
-            : 'border-ochre/40 text-ochre hover:border-ochre hover:bg-ochre-wash',
+            ? 'border-amber/50 bg-amber-wash text-amber hover:border-amber'
+            : 'border-ink bg-ivory text-ink hover:bg-ink hover:text-ivory data-[state=open]:bg-ink data-[state=open]:text-ivory',
         )}
         aria-label={`Source ${label}${unlocated ? ', needs checking' : ''}. Show evidence`}
       >
@@ -110,11 +110,11 @@ export function Citation({
               href={source.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1 block font-serif text-[1.0625rem] leading-snug text-ink underline decoration-hairline underline-offset-4 hover:decoration-ochre"
+              className="text-link mt-1 block font-serif text-[1.0625rem] leading-snug text-ink"
             >
               {source.headline}
               <ArrowUpRight
-                className="ml-1 inline size-3.5 text-ochre"
+                className="ml-1 inline size-3.5"
                 aria-label="(opens the publisher’s site in a new tab)"
               />
             </a>
@@ -124,7 +124,7 @@ export function Citation({
           <p className="meta">Source {label}</p>
         )}
         {excerpt ? (
-          <blockquote className="mt-3 border-l-2 border-hairline pl-3 font-serif leading-relaxed text-ink italic">
+          <blockquote className="mt-3 rounded-[10px] bg-bone px-3.5 py-2.5 font-serif leading-relaxed text-ink italic">
             “{excerpt}”
           </blockquote>
         ) : null}

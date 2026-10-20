@@ -1,17 +1,23 @@
 'use client';
 
-import type { ChatMessageDto, ResearchBriefDto, ResearchViewDto } from '@repo/core';
+import type {
+  ChatMessageDto,
+  ResearchBriefDto,
+  ResearchSourceDto,
+  ResearchViewDto,
+} from '@repo/core';
 import type { ApiErrorResponse } from '@repo/shared';
 import {
   ArrowDown,
   ArrowUp,
+  ArrowUpRight,
   BookOpen,
-  CircleCheck,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
   PenLine,
   RotateCcw,
   Square,
-  TriangleAlert,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -26,6 +32,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 
+import { reliability } from '@/components/editorial/copy';
 import { formatDate } from '@/components/editorial/format';
 import { REVEAL } from '@/components/progress/reveal';
 import { failureText, NOTICE_TEXT, slowText } from '@/components/progress/steps';
@@ -53,7 +60,6 @@ import {
   type ChatStreamLine,
   type ChatTurn,
 } from './chat-stream';
-import { sourceNote } from './citation';
 import {
   AnswerTurn,
   BriefTurn,
@@ -171,6 +177,158 @@ function LiveReply({
   );
 }
 
+type SourceFilter = 'all' | 'check' | 'research';
+
+/**
+ * Every source behind this conversation, with how the passages quoted from it checked out. A
+ * source check, not a fact-check: "found" means the passage is in the source word for word.
+ * Shown beside the conversation on wide screens and in a sheet on phones.
+ */
+function SourcesPanel({
+  sources,
+  checks,
+}: {
+  sources: ResearchSourceDto[];
+  checks: Record<string, { found: number; notFound: number }>;
+}) {
+  const [filter, setFilter] = useState<SourceFilter>('all');
+  const toCheck = sources.filter((s) => checks[s.id]?.notFound);
+  const fromResearch = sources.filter((s) => s.origin === 'research');
+  const found = Object.values(checks).reduce((n, c) => n + c.found, 0);
+  const notFound = Object.values(checks).reduce((n, c) => n + c.notFound, 0);
+  const shown = filter === 'check' ? toCheck : filter === 'research' ? fromResearch : sources;
+  const filters: Array<{ id: SourceFilter; label: string; count: number }> = [
+    { id: 'all', label: 'All', count: sources.length },
+    { id: 'check', label: 'To check', count: toCheck.length },
+    { id: 'research', label: 'From research', count: fromResearch.length },
+  ];
+  return (
+    <div className="flex flex-col gap-3.5">
+      <dl className="grid grid-cols-3 gap-2">
+        {[
+          { label: 'sources', value: sources.length, attention: false },
+          { label: 'quotes found', value: found, attention: false },
+          { label: 'to check', value: notFound, attention: notFound > 0 },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className={cn(
+              'flex flex-col-reverse rounded-xl px-3 py-2.5',
+              stat.attention ? 'bg-amber-wash' : 'border border-hairline bg-ivory',
+            )}
+          >
+            <dt className={cn('mt-1 text-xs', stat.attention ? 'text-[#5e4300]' : 'text-graphite')}>
+              {stat.label}
+            </dt>
+            <dd
+              className={cn('masthead text-[2rem] leading-[0.9]', stat.attention && 'text-amber')}
+            >
+              {stat.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-[0.78125rem] leading-normal text-graphite">
+        <strong className="font-semibold text-ink">A source check, not a fact-check.</strong>{' '}
+        “Found” means the quoted passage is in the source word for word. It shows where a point
+        comes from, not that it’s correct.
+      </p>
+      <div
+        role="group"
+        aria-label="Show sources"
+        className="flex gap-1 rounded-full bg-[#edece7] p-1"
+      >
+        {filters.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            aria-pressed={filter === f.id}
+            onClick={() => setFilter(f.id)}
+            className={cn(
+              'min-h-9 flex-1 rounded-full px-2 text-[0.8125rem] transition-colors',
+              filter === f.id
+                ? 'bg-ivory font-semibold text-ink shadow-[0_1px_2px_rgb(12_12_13/0.12)]'
+                : 'font-medium text-graphite hover:text-ink',
+            )}
+          >
+            {f.label} {f.count}
+          </button>
+        ))}
+      </div>
+      {shown.length ? (
+        <ol className="grid gap-2">
+          {shown.map((source) => {
+            const check = checks[source.id];
+            const unverified = source.sourceQuality === 'unverified_social';
+            return (
+              <li
+                key={source.id}
+                className="rounded-xl border border-hairline bg-ivory px-3.5 py-3"
+              >
+                <p className="text-xs text-slate">
+                  {source.publisher} ·{' '}
+                  {source.publishedAt ? formatDate(source.publishedAt) : 'Date not given'}
+                </p>
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="headline-link mt-1 block rounded-sm font-serif text-[0.96875rem] leading-[1.35] text-ink"
+                >
+                  {source.headline}
+                  <ArrowUpRight
+                    className="ml-1 inline size-3.5 align-baseline"
+                    aria-label="(opens the publisher’s site in a new tab)"
+                  />
+                </a>
+                <p className="mt-1.5 text-xs text-graphite">
+                  {source.origin === 'research' ? 'Found during research' : 'Original reporting'} ·{' '}
+                  <span className={unverified ? 'font-semibold text-amber' : undefined}>
+                    {reliability(source.sourceQuality)}
+                  </span>
+                </p>
+                {check ? (
+                  <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    {check.found ? (
+                      <span className="text-graphite">
+                        {check.found} quoted {check.found === 1 ? 'passage' : 'passages'} found
+                      </span>
+                    ) : null}
+                    {check.notFound ? (
+                      <span className="font-semibold text-amber">{check.notFound} to check</span>
+                    ) : null}
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p className="meta px-1">
+          {filter === 'check' ? 'Nothing to check from these sources.' : 'None yet.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Whether the sources sidebar is open: a per-browser preference, never required. */
+const PANEL_KEY = 'omenai:research-panel';
+function readPanelOpen(): boolean {
+  try {
+    return window.localStorage.getItem(PANEL_KEY) !== 'closed';
+  } catch {
+    return true;
+  }
+}
+function writePanelOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(PANEL_KEY, open ? 'open' : 'closed');
+  } catch {
+    // Storage can be unavailable (private windows); the sidebar just opens by default.
+  }
+}
+
 const draftKey = (storyId: string) => `omenai:research-draft:${storyId}`;
 function readDraft(storyId: string): string {
   try {
@@ -226,6 +384,17 @@ export function ResearchWorkspace({
   }, []);
   const [draft, setDraft] = useState('');
   const [atBottom, setAtBottom] = useState(true);
+  // The sources sidebar (wide screens); open unless this browser closed it before.
+  const [panelOpen, setPanelOpen] = useState(true);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setPanelOpen(readPanelOpen()));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  const togglePanel = () =>
+    setPanelOpen((open) => {
+      writePanelOpen(!open);
+      return !open;
+    });
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   // Whether to keep the newest words in view: while work is under way, unless the reader scrolled up.
@@ -517,10 +686,11 @@ export function ResearchWorkspace({
   // Stopping a reply is the editor's choice, not a fault.
   const stopped =
     failure?.kind === 'chat' && /stopped by the editor/i.test(failure.lastError ?? '');
+  // Colour only for an outcome: done (green) or needing attention (amber); work under way is ink.
   const status = researching
-    ? { label: 'Researching…', tone: 'text-ochre' }
+    ? { label: 'Researching…', tone: 'text-ink' }
     : replying
-      ? { label: 'Writing a reply…', tone: 'text-ochre' }
+      ? { label: 'Writing a reply…', tone: 'text-ink' }
       : stopped
         ? { label: 'Stopped', tone: 'text-graphite' }
         : failure
@@ -553,72 +723,22 @@ export function ResearchWorkspace({
         section="Research"
       >
         <p
-          className={cn('inline-flex shrink-0 items-center gap-1.5 text-xs', status.tone)}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 text-[0.8125rem] font-semibold',
+            status.tone,
+          )}
           role="status"
           aria-label={status.label}
         >
           {busy ? (
-            <Loader2 className="size-3 animate-spin" aria-hidden />
+            <Loader2 className="size-3.5 animate-spin" aria-hidden />
           ) : (
-            <span aria-hidden className="size-1.5 rounded-full bg-current" />
+            <span aria-hidden className="size-[7px] rounded-full bg-current" />
           )}
-          <span className="hidden sm:inline">{status.label}</span>
+          <span className="hidden md:inline">{status.label}</span>
         </p>
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="sm" disabled={!allSources.length}>
-              <BookOpen aria-hidden /> <span className="hidden sm:inline">Sources</span>
-              <span className="text-graphite tabular-nums">{allSources.length || ''}</span>
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="right" className="w-full bg-paper sm:max-w-md">
-            <SheetHeader className="border-b border-hairline">
-              <SheetTitle className="font-display text-2xl font-normal">Sources</SheetTitle>
-              <SheetDescription>
-                Every source behind this conversation, and how the passages quoted from it checked
-                out.
-              </SheetDescription>
-            </SheetHeader>
-            <ol className="divide-y divide-hairline overflow-y-auto px-4">
-              {allSources.map((source) => (
-                <li key={source.id} className="py-4">
-                  <p className="meta">
-                    {source.publisher} ·{' '}
-                    {source.publishedAt ? formatDate(source.publishedAt) : 'Date not given'}
-                  </p>
-                  <a
-                    href={source.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-serif text-[1.0625rem] leading-snug text-ink underline decoration-hairline underline-offset-4 hover:decoration-ochre"
-                  >
-                    {source.headline}
-                  </a>
-                  <p className="mt-1 text-xs text-graphite">{sourceNote(source)}</p>
-                  {checks[source.id] ? (
-                    <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink">
-                      {checks[source.id]!.found ? (
-                        <span className="inline-flex items-center gap-1">
-                          <CircleCheck className="size-3 text-moss" aria-hidden />
-                          {checks[source.id]!.found} quoted{' '}
-                          {checks[source.id]!.found === 1 ? 'passage' : 'passages'} found
-                        </span>
-                      ) : null}
-                      {checks[source.id]!.notFound ? (
-                        <span className="inline-flex items-center gap-1">
-                          <TriangleAlert className="size-3 text-amber" aria-hidden />
-                          {checks[source.id]!.notFound} couldn’t be checked
-                        </span>
-                      ) : null}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          </SheetContent>
-        </Sheet>
         {view.briefs.length ? (
-          <Button asChild size="sm">
+          <Button asChild size="sm" className="h-10 px-4 pointer-coarse:h-11">
             <Link href={`/stories/${story.id}/studio`}>
               <PenLine aria-hidden />
               <span className="hidden sm:inline">Write a draft</span>
@@ -626,224 +746,316 @@ export function ResearchWorkspace({
             </Link>
           </Button>
         ) : null}
+        {/* Wide screens: the sidebar beside the conversation. */}
+        <Button
+          variant={panelOpen ? 'secondary' : 'outline'}
+          size="sm"
+          className="hidden h-10 px-3.5 font-medium lg:inline-flex"
+          aria-expanded={panelOpen}
+          aria-controls="evidence"
+          onClick={togglePanel}
+        >
+          {panelOpen ? <PanelRightClose aria-hidden /> : <PanelRightOpen aria-hidden />}
+          Sources &amp; checks
+          <span className="inline-flex h-5 min-w-5.5 items-center justify-center rounded-full bg-ink px-1.5 text-[0.71875rem] font-semibold text-white tabular-nums">
+            {allSources.length}
+          </span>
+        </Button>
+        {/* Phones and tablets: the same panel in a sheet. */}
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10 px-3.5 font-medium lg:hidden pointer-coarse:h-11"
+              disabled={!allSources.length}
+            >
+              <BookOpen aria-hidden />{' '}
+              <span className="hidden sm:inline">Sources &amp; checks</span>
+              <span className="text-graphite tabular-nums">{allSources.length || ''}</span>
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-full bg-ivory sm:max-w-md">
+            <SheetHeader className="border-b border-hairline bg-ivory">
+              <SheetTitle className="masthead text-[1.375rem] tracking-[0.02em]">
+                Sources &amp; checks
+              </SheetTitle>
+              <SheetDescription>Everything behind this conversation.</SheetDescription>
+            </SheetHeader>
+            <div className="overflow-y-auto px-4 pb-8">
+              <SourcesPanel sources={allSources} checks={checks} />
+            </div>
+          </SheetContent>
+        </Sheet>
       </WorkspaceHeader>
 
-      {/* Conversation */}
-      <div ref={scroller} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-y-auto">
-        <div
-          ref={content}
-          className="mx-auto w-full max-w-[50rem] space-y-12 px-4 pt-10 pb-24 sm:px-6"
-        >
-          {turns.length === 0 && !researching && !failure ? (
-            <WelcomeTurn headline={story.headline} />
-          ) : null}
-          {turns.map((turn) =>
-            turn.kind === 'brief' ? (
-              <div key={turn.brief.id} className="space-y-6">
-                <RequestLine at={turn.brief.createdAt}>{briefRequestText(turn.brief)}</RequestLine>
-                <BriefTurn brief={turn.brief} sources={view.sources} />
-              </div>
-            ) : turn.message.role === 'user' ? (
-              <UserTurn key={turn.message.id} message={turn.message} />
-            ) : (
-              <AnswerTurn
-                key={turn.message.id}
-                message={turn.message}
-                sources={view.sources}
-                leadState={
-                  !turn.message.suggestedFocus
-                    ? null
-                    : followedUp.has(turn.message.id)
-                      ? 'done'
-                      : busy
-                        ? 'busy'
-                        : 'offer'
-                }
-                onResearchLead={() => startResearch({ fromMessageId: turn.message.id })}
-                followUp={followUpFor(turn.message)}
-              />
-            ),
-          )}
-          {turn ? (
-            <>
-              <UserTurn
-                pending={turn.phase === 'sending'}
-                message={{ content: turn.question, author: 'You', createdAt: turn.startedAt }}
-              />
-              <LiveReply
-                turn={turn}
-                sources={view.sources}
-                revealed={revealedId === turn.id}
-                onRevealed={onRevealed}
-                followUpFor={followUpFor}
-              />
-            </>
-          ) : null}
-          {researchingApart ? (
-            <div className="space-y-6">
-              <RequestLine>
-                {briefRequestText({
-                  requestKind: view.activeTask!.requestKind ?? 'manual',
-                  requestedBy: view.activeTask!.requestedBy,
-                  focus: view.activeTask!.focus,
-                })}
-              </RequestLine>
-              <ProgressTurn
-                task={view.activeTask!}
-                headline={story.headline}
-                serverNow={view.now}
-              />
-            </div>
-          ) : null}
-          {view.activeTask?.kind === 'chat' && !turn ? (
-            <RecordedChatTurn task={view.activeTask} serverNow={view.now} />
-          ) : null}
-          {failureApart && failure && !busy && !turn ? (
-            <div
-              role={stopped ? 'status' : 'alert'}
-              className={cn('rounded-lg p-5', stopped ? 'bg-bone/70' : 'bg-amber-wash/70')}
-            >
-              <p className="font-medium text-ink">
-                {failure.kind === 'chat'
-                  ? stopped
-                    ? 'You stopped the last reply.'
-                    : 'Your last question didn’t get a reply.'
-                  : view.briefs.length
-                    ? 'The latest research didn’t finish.'
-                    : 'The research didn’t finish.'}
-              </p>
-              <p className="mt-1 text-[0.9375rem] text-graphite">
-                {stopped ? null : `${failureText(failure.lastError)} `}
-                {failure.kind === 'chat'
-                  ? 'Your question is saved, so you can ask it again.'
-                  : 'Nothing half-finished was saved, and anything already found will be reused when you try again.'}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3"
-                onClick={() =>
-                  failure.kind === 'chat'
-                    ? setDraft(lastQuestion)
-                    : startResearch(
-                        failure.fromMessageId ? { fromMessageId: failure.fromMessageId } : {},
-                      )
-                }
-              >
-                <RotateCcw aria-hidden /> {failure.kind === 'chat' ? 'Ask again' : 'Try again'}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-        {!atBottom ? (
-          <button
-            type="button"
-            onClick={() =>
-              scroller.current?.scrollTo({
-                top: scroller.current.scrollHeight,
-                behavior: scrollBehavior(),
-              })
-            }
-            className="sticky bottom-6 left-1/2 z-10 mx-auto flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline bg-ivory px-3.5 py-1.5 text-xs text-ink shadow-sm hover:border-ochre"
-          >
-            <ArrowDown className="size-3.5" aria-hidden /> Jump to latest
-          </button>
-        ) : null}
-      </div>
-
-      {/* Composer */}
-      <div className="relative shrink-0 bg-paper px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
-        {/* Lets the conversation fade under the composer instead of stopping at a hard line. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-10 h-10 bg-gradient-to-t from-paper to-transparent"
-        />
-        <form onSubmit={(event) => void send(event)} className="mx-auto max-w-[47rem]">
-          {suggested.length ? (
-            <div className="mb-3 flex rise-in [scrollbar-width:none] gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible">
-              <span className="meta shrink-0 self-center pr-1">Try asking</span>
-              {suggested.map((question) => (
-                <button
-                  key={question}
-                  type="button"
-                  onClick={() => void send(undefined, question)}
-                  className="shrink-0 rounded-md border border-hairline-soft bg-ivory px-3 py-1.5 text-left text-sm text-ink transition-colors hover:border-ochre/60 hover:bg-ochre-wash/40"
-                >
-                  {question}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <label htmlFor="composer" className="sr-only">
-            Ask about this story
-          </label>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Conversation: it widens when the sidebar is closed. */}
           <div
-            className={cn(
-              'rounded-xl border bg-ivory shadow-float transition-[border-color,box-shadow] focus-within:border-ochre focus-within:ring-[3px] focus-within:ring-ochre/15',
-              busy || !view.briefs.length ? 'border-hairline' : 'border-rule-strong',
-            )}
+            ref={scroller}
+            onScroll={onScroll}
+            className="relative min-h-0 flex-1 overflow-y-auto"
           >
-            <textarea
-              id="composer"
-              ref={composer}
-              rows={1}
-              value={draft}
-              maxLength={2_000}
-              disabled={!view.briefs.length}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                writeDraft(story.id, event.target.value);
-              }}
-              onKeyDown={onKeyDown}
-              placeholder={
-                view.briefs.length
-                  ? 'Ask anything about this story…'
-                  : 'You can ask questions once the briefing is ready.'
-              }
-              className="block max-h-60 min-h-12 w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base leading-relaxed text-ink outline-none placeholder:text-graphite disabled:cursor-not-allowed sm:px-5"
-            />
-            <div className="flex items-center justify-between gap-3 px-3 pb-2.5 pl-4 sm:pl-5">
-              <p className="meta min-w-0 truncate text-xs">
-                {researching
-                  ? 'You can ask as soon as this research finishes.'
-                  : replying
-                    ? 'Writing a reply…'
-                    : view.briefs.length
-                      ? 'Answers draw on this story’s research.'
-                      : 'Getting the briefing ready…'}
-              </p>
-              {turn && canStop(turn) ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  onClick={() => void stop()}
-                  aria-label="Stop the reply"
-                  className="shrink-0 rounded-full"
-                >
-                  <Square className="size-3.5 fill-current" aria-hidden />
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  size="icon"
-                  disabled={!draft.trim() || busy || Boolean(turn) || !view.briefs.length}
-                  aria-label="Send question"
-                  className="shrink-0 rounded-full"
-                >
-                  {turn ? (
-                    <Loader2 className="animate-spin" aria-hidden />
-                  ) : (
-                    <ArrowUp aria-hidden />
-                  )}
-                </Button>
+            <div
+              ref={content}
+              className={cn(
+                'mx-auto w-full space-y-10 px-4 pt-9 pb-24 sm:px-8',
+                panelOpen ? 'max-w-[55rem]' : 'max-w-[55rem] lg:max-w-[65rem]',
               )}
+            >
+              {turns.length === 0 && !researching && !failure ? (
+                <WelcomeTurn headline={story.headline} />
+              ) : null}
+              {turns.map((turn) =>
+                turn.kind === 'brief' ? (
+                  <div key={turn.brief.id} className="space-y-6">
+                    <RequestLine at={turn.brief.createdAt}>
+                      {briefRequestText(turn.brief)}
+                    </RequestLine>
+                    <BriefTurn brief={turn.brief} sources={view.sources} />
+                  </div>
+                ) : turn.message.role === 'user' ? (
+                  <UserTurn key={turn.message.id} message={turn.message} />
+                ) : (
+                  <AnswerTurn
+                    key={turn.message.id}
+                    message={turn.message}
+                    sources={view.sources}
+                    leadState={
+                      !turn.message.suggestedFocus
+                        ? null
+                        : followedUp.has(turn.message.id)
+                          ? 'done'
+                          : busy
+                            ? 'busy'
+                            : 'offer'
+                    }
+                    onResearchLead={() => startResearch({ fromMessageId: turn.message.id })}
+                    followUp={followUpFor(turn.message)}
+                  />
+                ),
+              )}
+              {turn ? (
+                <>
+                  <UserTurn
+                    pending={turn.phase === 'sending'}
+                    message={{ content: turn.question, author: 'You', createdAt: turn.startedAt }}
+                  />
+                  <LiveReply
+                    turn={turn}
+                    sources={view.sources}
+                    revealed={revealedId === turn.id}
+                    onRevealed={onRevealed}
+                    followUpFor={followUpFor}
+                  />
+                </>
+              ) : null}
+              {researchingApart ? (
+                <div className="space-y-6">
+                  <RequestLine>
+                    {briefRequestText({
+                      requestKind: view.activeTask!.requestKind ?? 'manual',
+                      requestedBy: view.activeTask!.requestedBy,
+                      focus: view.activeTask!.focus,
+                    })}
+                  </RequestLine>
+                  <ProgressTurn
+                    task={view.activeTask!}
+                    headline={story.headline}
+                    serverNow={view.now}
+                  />
+                </div>
+              ) : null}
+              {view.activeTask?.kind === 'chat' && !turn ? (
+                <RecordedChatTurn task={view.activeTask} serverNow={view.now} />
+              ) : null}
+              {failureApart && failure && !busy && !turn ? (
+                <div
+                  role={stopped ? 'status' : 'alert'}
+                  className={cn('rounded-[14px] p-5', stopped ? 'bg-bone' : 'bg-amber-soft')}
+                >
+                  <p className="font-medium text-ink">
+                    {failure.kind === 'chat'
+                      ? stopped
+                        ? 'You stopped the last reply.'
+                        : 'Your last question didn’t get a reply.'
+                      : view.briefs.length
+                        ? 'The latest research didn’t finish.'
+                        : 'The research didn’t finish.'}
+                  </p>
+                  <p className="mt-1 text-[0.9375rem] text-graphite">
+                    {stopped ? null : `${failureText(failure.lastError)} `}
+                    {failure.kind === 'chat'
+                      ? 'Your question is saved, so you can ask it again.'
+                      : 'Nothing half-finished was saved, and anything already found will be reused when you try again.'}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() =>
+                      failure.kind === 'chat'
+                        ? setDraft(lastQuestion)
+                        : startResearch(
+                            failure.fromMessageId ? { fromMessageId: failure.fromMessageId } : {},
+                          )
+                    }
+                  >
+                    <RotateCcw aria-hidden /> {failure.kind === 'chat' ? 'Ask again' : 'Try again'}
+                  </Button>
+                </div>
+              ) : null}
             </div>
+            {!atBottom ? (
+              <button
+                type="button"
+                onClick={() =>
+                  scroller.current?.scrollTo({
+                    top: scroller.current.scrollHeight,
+                    behavior: scrollBehavior(),
+                  })
+                }
+                className="sticky bottom-6 left-1/2 z-10 mx-auto flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline bg-ivory px-3.5 py-1.5 text-xs font-medium text-ink shadow-float hover:border-ink"
+              >
+                <ArrowDown className="size-3.5" aria-hidden /> Jump to latest
+              </button>
+            ) : null}
           </div>
-          <p className="meta mt-2 hidden text-center text-xs sm:block">
-            Enter to send · Shift + Enter for a new line · Every quote is checked against its source
-          </p>
-        </form>
+
+          {/* Composer */}
+          <div className="relative shrink-0 bg-paper px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8">
+            {/* Lets the conversation fade under the composer instead of stopping at a hard line. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 -top-10 h-10 bg-gradient-to-t from-paper to-transparent"
+            />
+            <form
+              onSubmit={(event) => void send(event)}
+              className={cn(
+                'mx-auto',
+                panelOpen ? 'max-w-[51rem]' : 'max-w-[51rem] lg:max-w-[61rem]',
+              )}
+            >
+              {suggested.length ? (
+                <div className="mb-3 flex rise-in [scrollbar-width:none] gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible">
+                  <span className="meta shrink-0 self-center pr-1">Try asking</span>
+                  {suggested.map((question) => (
+                    <button
+                      key={question}
+                      type="button"
+                      onClick={() => void send(undefined, question)}
+                      className="min-h-9 shrink-0 rounded-full border border-hairline bg-ivory px-3.5 py-1.5 text-left text-sm text-ink transition-colors hover:border-ink"
+                    >
+                      {question}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <label htmlFor="composer" className="sr-only">
+                Ask about this story
+              </label>
+              <div
+                className={cn(
+                  'rounded-2xl border bg-ivory shadow-float transition-[border-color,box-shadow] focus-within:border-ink focus-within:ring-[3px] focus-within:ring-ink/10',
+                  busy || !view.briefs.length ? 'border-hairline' : 'border-rule-strong',
+                )}
+              >
+                <textarea
+                  id="composer"
+                  ref={composer}
+                  rows={1}
+                  value={draft}
+                  maxLength={2_000}
+                  disabled={!view.briefs.length}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    writeDraft(story.id, event.target.value);
+                  }}
+                  onKeyDown={onKeyDown}
+                  placeholder={
+                    view.briefs.length
+                      ? 'Ask anything about this story…'
+                      : 'You can ask questions once the briefing is ready.'
+                  }
+                  className="block max-h-60 min-h-12 w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base leading-relaxed text-ink outline-none placeholder:text-slate disabled:cursor-not-allowed sm:px-5"
+                />
+                <div className="flex items-center justify-between gap-3 px-3 pb-2.5 pl-4 sm:pl-5">
+                  <p className="meta min-w-0 truncate text-xs">
+                    {researching
+                      ? 'You can ask as soon as this research finishes.'
+                      : replying
+                        ? 'Writing a reply…'
+                        : view.briefs.length
+                          ? 'Answers draw on this story’s research.'
+                          : 'Getting the briefing ready…'}
+                  </p>
+                  {turn && canStop(turn) ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      onClick={() => void stop()}
+                      aria-label="Stop the reply"
+                      className="shrink-0 rounded-full"
+                    >
+                      <Square className="size-3.5 fill-current" aria-hidden />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="submit"
+                      size="icon"
+                      disabled={!draft.trim() || busy || Boolean(turn) || !view.briefs.length}
+                      aria-label="Send question"
+                      className="shrink-0 rounded-full"
+                    >
+                      {turn ? (
+                        <Loader2 className="animate-spin" aria-hidden />
+                      ) : (
+                        <ArrowUp aria-hidden />
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <p className="meta mt-2 hidden text-center text-xs sm:block">
+                Enter to send · Shift + Enter for a new line · Every quote is checked against its
+                source
+              </p>
+            </form>
+          </div>
+        </div>
+
+        {/* Always in the page (the toggle controls it), shown only on wide screens while open. */}
+        <aside
+          id="evidence"
+          aria-label="Sources and checks"
+          className={cn(
+            'hidden w-[26.25rem] shrink-0 flex-col border-l border-hairline bg-ivory',
+            panelOpen && 'lg:flex',
+          )}
+        >
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline bg-ivory py-4 pr-4.5 pl-5.5">
+            <div>
+              <h2 className="masthead text-[1.375rem] tracking-[0.02em]">Sources &amp; checks</h2>
+              <p className="mt-1 text-[0.78125rem] text-slate">
+                Everything behind this conversation
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              className="border-hairline"
+              onClick={togglePanel}
+              aria-label="Collapse sources and checks"
+            >
+              <PanelRightClose aria-hidden />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5.5 pt-4 pb-6">
+            <SourcesPanel sources={allSources} checks={checks} />
+          </div>
+        </aside>
       </div>
     </div>
   );

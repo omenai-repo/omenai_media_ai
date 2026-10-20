@@ -67,7 +67,9 @@ function UsageGroups({ summary }: { summary: UsageSummaryDto }) {
               <span className="meta block">{figure.label}</span>
               <span
                 className={
-                  figure.quiet ? 'text-sm text-ink' : 'font-display text-2xl text-ink tabular-nums'
+                  figure.quiet
+                    ? 'text-sm text-ink'
+                    : 'masthead text-[1.75rem] leading-none text-ink tabular-nums'
                 }
               >
                 {figure.value}
@@ -81,7 +83,7 @@ function UsageGroups({ summary }: { summary: UsageSummaryDto }) {
         <p
           className={
             summary.estimateUsd && !summary.freeTierOnly
-              ? 'font-display text-3xl text-ink tabular-nums'
+              ? 'masthead text-[2.25rem] leading-none text-ink tabular-nums'
               : 'text-ink'
           }
         >
@@ -157,7 +159,7 @@ export function UsageSummary({
       </div>
 
       {simulated ? (
-        <div className="rounded-lg border border-dashed border-amber/50 bg-amber-wash/40 p-5">
+        <div className="rounded-[14px] border border-dashed border-amber/40 bg-amber-soft/70 p-5">
           <h3 className="text-sm font-medium text-ink">Simulated usage (development fixtures)</h3>
           <p className="meta mt-1 mb-3">
             Invented activity for testing these screens. No provider reported it, and it isn’t

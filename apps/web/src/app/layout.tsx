@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono, Instrument_Serif, Newsreader } from 'next/font/google';
+import { Archivo, Geist, Geist_Mono, Newsreader } from 'next/font/google';
 import type { ReactNode } from 'react';
 
 import { Toaster } from '@/components/ui/sonner';
@@ -10,11 +10,11 @@ import './globals.css';
 
 const geistSans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' });
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' });
-const instrument = Instrument_Serif({
+// The masthead face: only the narrow, heavy cut is used, through the width axis (ADR-040).
+const archivo = Archivo({
   subsets: ['latin'],
-  weight: '400',
-  style: ['normal', 'italic'],
-  variable: '--font-instrument',
+  axes: ['wdth'],
+  variable: '--font-archivo',
 });
 const newsreader = Newsreader({
   subsets: ['latin'],
@@ -34,12 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html
       lang="en"
-      className={cn(
-        geistSans.variable,
-        geistMono.variable,
-        instrument.variable,
-        newsreader.variable,
-      )}
+      className={cn(geistSans.variable, geistMono.variable, archivo.variable, newsreader.variable)}
     >
       <body className="min-h-dvh">
         <TooltipProvider>{children}</TooltipProvider>

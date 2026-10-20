@@ -49,17 +49,17 @@ const evidenceCheckText = (check: EvidenceCheck | null) =>
 /** Reading text for every assistant turn: one size, so briefs and answers feel like one voice. */
 const PROSE = 'font-serif text-[1.125rem] leading-[1.75] text-ink';
 
-/** The assistant's mark: a quiet ochre monogram, never an avatar of a person. */
+/** The assistant's mark: an ink monogram in the masthead face, never an avatar of a person. */
 function AssistantByline({ at, label }: { at: string; label?: string }) {
   return (
     <p className="mb-3 flex items-center gap-2.5">
       <span
         aria-hidden
-        className="flex size-6 items-center justify-center rounded-full bg-ink font-display text-[0.8rem] text-ivory"
+        className="masthead flex size-7 items-center justify-center rounded-full bg-ink text-sm leading-none text-ivory"
       >
         O
       </span>
-      <span className="text-sm font-medium text-ink">Omenai</span>
+      <span className="text-[0.84375rem] font-semibold text-ink">Omenai</span>
       <span className="meta">
         {label ? `${label} · ` : ''}
         {formatTime(at)}
@@ -73,8 +73,8 @@ export function RequestLine({ children, at }: { children: ReactNode; at?: string
   return (
     <div className="flex items-center gap-4 py-1" role="note">
       <span aria-hidden className="h-px flex-1 bg-hairline" />
-      <p className="max-w-[64ch] text-center text-[0.8125rem] leading-relaxed text-graphite">
-        <span className="text-ochre">✦</span> {children}
+      <p className="max-w-[64ch] text-center text-[0.78125rem] leading-relaxed text-slate">
+        {children}
         {at ? <span className="ml-1 whitespace-nowrap">· {formatTime(at)}</span> : null}
       </p>
       <span aria-hidden className="h-px flex-1 bg-hairline" />
@@ -164,9 +164,7 @@ function Prose({
   return (
     <p className={cn(PROSE, className)}>
       {lead ? (
-        <strong className="mr-1.5 font-sans text-[0.9375rem] font-semibold text-ochre">
-          {lead}.
-        </strong>
+        <strong className="mr-1.5 font-sans text-sm font-semibold text-ink">{lead}.</strong>
       ) : null}
       {claims.map((claim, i) => (
         <ClaimText key={i} claim={claim} brief={brief} sources={sources} />
@@ -182,7 +180,7 @@ function SourceList({ brief, sources }: { brief: ResearchBriefDto; sources: Sour
         const source = sources[s.sourceId];
         return source ? (
           <li key={s.label} className="flex gap-3">
-            <span className="w-6 shrink-0 text-sm font-medium text-ochre tabular-nums">
+            <span className="w-6 shrink-0 text-sm font-semibold text-ink tabular-nums">
               {s.label}
             </span>
             <span className="min-w-0">
@@ -190,7 +188,7 @@ function SourceList({ brief, sources }: { brief: ResearchBriefDto; sources: Sour
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-serif text-ink underline decoration-hairline underline-offset-4 hover:decoration-ochre"
+                className="text-link font-serif text-ink"
               >
                 {source.headline}
               </a>
@@ -263,7 +261,10 @@ export function BriefTurn({ brief, sources }: { brief: ResearchBriefDto; sources
           </p>
         ) : null}
         {digest.toConfirm.length ? (
-          <section aria-labelledby={`${titleId}-confirm`} className="pt-1">
+          <section
+            aria-labelledby={`${titleId}-confirm`}
+            className="rounded-xl bg-[#f5f4f0] px-4 py-3"
+          >
             <h3 id={`${titleId}-confirm`} className="text-[0.9375rem] font-semibold text-ink">
               Still to confirm
             </h3>
@@ -331,10 +332,7 @@ export function BriefTurn({ brief, sources }: { brief: ResearchBriefDto; sources
                   <ul className="space-y-2">
                     {brief.verificationChecklist.map((item) => (
                       <li key={item} className="flex gap-2.5 leading-relaxed text-ink">
-                        <span
-                          aria-hidden
-                          className="mt-2 size-1.5 shrink-0 rounded-full bg-ochre"
-                        />
+                        <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-ink" />
                         {item}
                       </li>
                     ))}
@@ -496,7 +494,7 @@ export function UserTurn({
         </p>
         <div
           className={cn(
-            'rounded-lg rounded-tr-sm border border-hairline-soft bg-ivory px-4 py-3 text-base leading-relaxed whitespace-pre-line text-ink',
+            'rounded-[18px] rounded-br-md bg-[#f1f0ec] px-4.5 py-3 text-base leading-normal whitespace-pre-line text-ink',
             pending && 'opacity-70',
           )}
         >
@@ -540,7 +538,7 @@ export function AnswerTurn({
     return (
       <div>
         <AssistantByline at={message.createdAt} />
-        <div className="rounded-lg bg-bone/70 px-4 py-3">
+        <div className="rounded-[14px] bg-bone px-4 py-3">
           <p className="text-[0.9375rem] leading-relaxed text-ink">{message.content}</p>
         </div>
       </div>
@@ -580,7 +578,7 @@ export function AnswerTurn({
         ) : message.suggestedFocus && leadState ? (
           <div className="surface mt-4 p-4">
             <p className="text-sm text-ink">
-              <Search className="mr-1.5 inline size-3.5 text-ochre" aria-hidden />
+              <Search className="mr-1.5 inline size-3.5 text-ink" aria-hidden />
               Omenai can research this lead:{' '}
               <span className="font-serif italic">“{message.suggestedFocus}”</span>
             </p>
@@ -609,7 +607,10 @@ export function AnswerTurn({
 /** The follow-up sits inside the reply it continues: one answer to one question. */
 function FollowUpFrame({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <section aria-label={label} className="mt-5 rise-in border-l-2 border-ochre/35 pl-4">
+    <section
+      aria-label={label}
+      className="mt-4 rise-in rounded-[14px] bg-[#f5f4f0] px-4.5 pt-3.5 pb-4"
+    >
       {children}
     </section>
   );
@@ -716,7 +717,7 @@ function FollowUpProgress({
       <p className="meta mt-1">Looking into: “{question}”</p>
       {waiting ? (
         <p className="mt-3 flex items-start gap-2.5 text-[0.9375rem] text-ink" role="status">
-          <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-ochre" aria-hidden />
+          <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-ink" aria-hidden />
           {waiting}
         </p>
       ) : null}
@@ -774,7 +775,7 @@ function FollowUpFindings({ brief, sources }: { brief: ResearchBriefDto; sources
           <ul className="mt-1.5 space-y-1.5">
             {brief.verificationChecklist.map((item) => (
               <li key={item} className="flex gap-2.5 text-[0.9375rem] leading-relaxed text-ink">
-                <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-ochre" />
+                <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-ink" />
                 {item}
               </li>
             ))}
@@ -831,7 +832,7 @@ export function ProgressTurn({
         </p>
         {waiting ? (
           <p className="mt-4 flex items-start gap-3 text-[0.9375rem] text-ink" role="status">
-            <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-ochre" aria-hidden />
+            <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-ink" aria-hidden />
             {waiting}
           </p>
         ) : null}
@@ -969,7 +970,7 @@ export function WelcomeTurn({ headline }: { headline: string }) {
       <AssistantByline at={new Date().toISOString()} />
       <div>
         <p className={PROSE}>
-          <Sparkles className="mr-2 inline size-4 text-ochre" aria-hidden />
+          <Sparkles className="mr-2 inline size-4 text-ink" aria-hidden />
           I’m your research assistant for <span className="italic">“{headline}”</span>. I’ll read
           its sources, look for more, and give you a briefing where every fact links to where it
           came from.

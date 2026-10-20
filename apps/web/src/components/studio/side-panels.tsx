@@ -87,13 +87,13 @@ export function ChecksPanel({
   return (
     <div className="space-y-5 text-[0.9375rem] leading-relaxed">
       {earlier ? (
-        <p className="rounded-md bg-amber-wash/70 px-3 py-2.5 text-sm text-ink">
-          This version’s text hasn’t been checked. The checks below belong to version{' '}
-          {checked.version}, which this one comes from; anything changed since then hasn’t been
-          checked.
+        <p className="rounded-xl border border-ink px-3 py-2.5 text-[0.84375rem] leading-normal text-ink">
+          <strong className="font-semibold">This version’s text hasn’t been checked.</strong> The
+          checks below belong to version {checked.version}, which this one comes from; anything
+          changed since then hasn’t been checked.
         </p>
       ) : null}
-      <p className="rounded-md bg-bone/60 px-3 py-2.5 text-sm text-ink">
+      <p className="rounded-xl bg-[#f5f4f0] px-3 py-2.5 text-[0.8125rem] leading-normal text-ink">
         <span className="font-semibold">A source check, not a fact-check.</span> For each statement
         Omenai listed, we looked for the passage it quoted in the stored source. A match shows where
         the statement came from, not that it’s correct. Anything in the draft that isn’t listed here
@@ -102,11 +102,14 @@ export function ChecksPanel({
       {claims.length ? (
         <section
           aria-label={earlier ? `Checks for version ${checked.version}` : 'Checks'}
-          className={cn('space-y-5', earlier && 'rounded-md border border-hairline p-3')}
+          className={cn('space-y-4', earlier && 'rounded-[14px] border border-hairline p-3.5')}
         >
           {earlier ? (
-            <h3 className="text-sm font-semibold text-ink">
+            <h3 className="flex items-center justify-between gap-2 text-[0.84375rem] font-semibold text-ink">
               Checks for version {checked.version}, as first written
+              <span className="rounded-full border border-rule-strong px-2 text-[0.71875rem] font-semibold text-slate">
+                Version {checked.version}
+              </span>
             </h3>
           ) : null}
           <p className="text-graphite">
@@ -196,50 +199,68 @@ export function VersionHistory({
   onSelect: (version: number) => void;
 }) {
   return (
-    <ol className="divide-y divide-hairline-soft">
-      {versions.map((version) => {
-        const current = version.version === shown;
-        return (
-          <li key={version.id}>
-            <button
-              type="button"
-              onClick={() => onSelect(version.version)}
-              aria-current={current ? 'true' : undefined}
-              className={cn(
-                '-mx-2 block w-[calc(100%+1rem)] rounded-md px-2 py-3 text-left transition-colors hover:bg-bone/50',
-                current && 'bg-bone/60',
-              )}
-            >
-              <span className="flex items-baseline justify-between gap-3">
-                <span className="font-medium text-ink">
-                  Version {version.version}
-                  {version === versions[0] ? (
-                    <span className="ml-2 text-xs font-normal text-moss">Latest</span>
-                  ) : null}
+    <>
+      <ol className="grid gap-1.5">
+        {versions.map((version) => {
+          const current = version.version === shown;
+          return (
+            <li key={version.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(version.version)}
+                aria-current={current ? 'true' : undefined}
+                className={cn(
+                  'block w-full rounded-xl border px-3 py-2.5 text-left transition-colors',
+                  current ? 'border-ink bg-[#f5f4f0]' : 'border-transparent hover:bg-bone',
+                )}
+              >
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm font-semibold text-ink">
+                    Version {version.version}
+                    {version === versions[0] ? (
+                      <span className="ml-1.5 text-[0.71875rem] font-medium text-slate">
+                        Latest
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="meta shrink-0">{formatDateTime(version.createdAt)}</span>
                 </span>
-                <span className="meta shrink-0">{formatDateTime(version.createdAt)}</span>
-              </span>
-              <span className="mt-0.5 block text-sm text-graphite">
-                {versionOrigin(version)}
-                {version.origin === 'edited' &&
-                version.restoredFrom === null &&
-                version.basedOnVersion !== null
-                  ? `, from version ${version.basedOnVersion}`
-                  : ''}
-                {version.origin === 'generated' && version.basedOnVersion !== null
-                  ? `, from version ${version.basedOnVersion}`
-                  : ''}
-              </span>
-              {version.instructions ? (
-                <span className="mt-1 block text-sm text-ink italic">“{version.instructions}”</span>
-              ) : null}
-              {version.shortened ? (
-                <span className="mt-1 block text-xs text-graphite">Shortened to fit</span>
-              ) : null}
-            </button>
-          </li>
-        );
-      })}
-    </ol>
+                <span className="mt-0.5 block text-sm text-graphite">
+                  {versionOrigin(version)}
+                  {version.origin === 'edited' &&
+                  version.restoredFrom === null &&
+                  version.basedOnVersion !== null
+                    ? `, from version ${version.basedOnVersion}`
+                    : ''}
+                  {version.origin === 'generated' && version.basedOnVersion !== null
+                    ? `, from version ${version.basedOnVersion}`
+                    : ''}
+                </span>
+                {version.instructions ? (
+                  <span className="mt-1 block text-sm text-ink italic">
+                    “{version.instructions}”
+                  </span>
+                ) : null}
+                {version.shortened ? (
+                  <span className="mt-1 block text-xs text-graphite">Shortened to fit</span>
+                ) : null}
+                {version.checksFrom !== version.version ? (
+                  <span className="mt-1.5 inline-flex h-5.5 items-center gap-1.5 rounded-full border border-tag-line px-2 text-[0.71875rem] font-medium text-graphite">
+                    <span
+                      aria-hidden
+                      className="size-[7px] rounded-full border-[1.5px] border-graphite"
+                    />
+                    Text not checked
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="meta mt-2 text-xs">
+        Every version is kept. Nothing is ever deleted or published from here.
+      </p>
+    </>
   );
 }

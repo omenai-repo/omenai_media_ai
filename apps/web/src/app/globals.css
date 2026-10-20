@@ -3,38 +3,44 @@
 @import 'shadcn/tailwind.css';
 
 /*
- * Omenai newsroom: "atelier edition". A single, art-directed light theme: warm paper and bone
- * grounds, ink text, hairline rules and one terracotta-ochre accent. Display headlines in
- * Instrument Serif, reading text in Newsreader, interface text in Geist.
+ * Omenai newsroom: an editorial magazine with a working newsroom inside it. A white canvas, ink
+ * type and one signal yellow, kept for the primary action and the current step. Every other
+ * colour carries a meaning (done, warning, failed); subjects and media types are named, never
+ * colour-coded. Masthead words in narrow Archivo, headlines and reading text in Newsreader,
+ * interface text in Geist (ADR-040).
  *
  * Token names follow shadcn/ui so its components inherit the theme. Text colours meet WCAG AA
- * on paper: ink ≈ 16:1, graphite ≈ 8:1, ochre ≈ 5:1. `--stone` is for rules and icons only.
- *
- * Shape: one radius scale from `--radius` (controls ≈ 10px, cards 12px, dialogs ≈ 17px), soft
- * hairlines and quiet surface shifts instead of hard rules; one soft shadow for floating things.
+ * on white: ink 19.6:1, graphite 10.8:1, slate 5.7:1. `--stone` (3.7:1) and `--subject` (3.4:1)
+ * are for large type (24px and up), rules and icons only.
  */
 :root {
   color-scheme: light;
 
-  --paper: oklch(0.966 0.011 80);
-  --bone: oklch(0.94 0.014 80);
-  --ivory: oklch(0.985 0.006 85);
-  --ink: oklch(0.205 0.01 60);
-  --graphite: oklch(0.42 0.012 65);
-  --stone: oklch(0.62 0.012 70);
-  --hairline: oklch(0.885 0.013 80);
-  --rule-strong: oklch(0.8 0.015 75);
-  --ochre: oklch(0.5 0.12 48);
-  --ochre-wash: oklch(0.93 0.035 70);
-  --moss: oklch(0.45 0.07 140);
-  --moss-wash: oklch(0.94 0.03 140);
-  --amber: oklch(0.5 0.1 75);
-  --amber-wash: oklch(0.95 0.04 85);
-  --oxide: oklch(0.48 0.13 30);
-  --oxide-wash: oklch(0.95 0.025 30);
-  /* A rule soft enough to separate without dividing. */
-  --hairline-soft: oklch(0.91 0.011 80);
-  --shadow-float: 0 1px 2px rgb(26 23 20 / 0.04), 0 12px 32px -16px rgb(26 23 20 / 0.22);
+  --paper: #ffffff;
+  --ivory: #ffffff;
+  /* The one wash, for recessed panels and image-free tiles. */
+  --bone: #f3f2ee;
+  --ink: #0c0c0d;
+  --graphite: #3d3d42;
+  --slate: #66666c;
+  --stone: #858480;
+  /* Unselected words of the subject index (30px and up only). */
+  --subject: #8e8c85;
+  --hairline: #e7e6e2;
+  --hairline-soft: #efeeea;
+  --rule-strong: #cbc9c3;
+  --tag-line: #cfcdc6;
+  /* The signal: the primary action and the current step, nothing else. */
+  --signal: #ffd233;
+  --signal-press: #f2c200;
+  --moss: #0e7a43;
+  --moss-wash: #e2f5ea;
+  --amber: #8a5300;
+  --amber-wash: #fff0c7;
+  --amber-soft: #fff6db;
+  --oxide: #c02a16;
+  --oxide-wash: #fde6e1;
+  --shadow-float: 0 1px 2px rgb(12 12 13 / 0.04), 0 16px 40px -20px rgb(12 12 13 / 0.28);
 
   --background: var(--paper);
   --foreground: var(--ink);
@@ -47,18 +53,18 @@
   --secondary: var(--bone);
   --secondary-foreground: var(--ink);
   --muted: var(--bone);
-  --muted-foreground: var(--graphite);
+  --muted-foreground: var(--slate);
   --accent: var(--bone);
   --accent-foreground: var(--ink);
   --destructive: var(--oxide);
   --border: var(--hairline);
   --input: var(--rule-strong);
-  --ring: var(--ochre);
-  --chart-1: var(--ochre);
+  --ring: var(--ink);
+  --chart-1: var(--ink);
   --chart-2: var(--moss);
-  --chart-3: oklch(0.45 0.06 250);
+  --chart-3: var(--graphite);
   --chart-4: var(--amber);
-  --chart-5: var(--graphite);
+  --chart-5: var(--stone);
   --sidebar: var(--bone);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--ink);
@@ -66,19 +72,22 @@
   --sidebar-accent: var(--paper);
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: var(--hairline);
-  --sidebar-ring: var(--ochre);
+  --sidebar-ring: var(--ink);
 
-  --radius: 0.75rem;
-  /* One gutter for header and content, so everything aligns. */
-  --gutter: clamp(1rem, 4.5vw, 5rem);
+  /* Controls are pills; cards 14px; the lead image and big panels 20px. */
+  --radius: 0.875rem;
+  /* One gutter for header and content, so everything aligns: 16px on a phone, 48px wide. */
+  --gutter: clamp(1rem, 3.4vw, 3rem);
 }
 
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-serif: var(--font-newsreader);
-  --font-display: var(--font-instrument);
-  --font-heading: var(--font-instrument);
+  /* Headlines are Newsreader; the masthead face (Archivo) is its own family. */
+  --font-display: var(--font-newsreader);
+  --font-heading: var(--font-newsreader);
+  --font-masthead: var(--font-archivo);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -103,13 +112,17 @@
   --color-ivory: var(--ivory);
   --color-ink: var(--ink);
   --color-graphite: var(--graphite);
+  --color-slate: var(--slate);
   --color-stone: var(--stone);
+  --color-subject: var(--subject);
+  --color-tag-line: var(--tag-line);
+  --color-signal: var(--signal);
+  --color-signal-press: var(--signal-press);
+  --color-amber-soft: var(--amber-soft);
   --color-hairline: var(--hairline);
   --color-hairline-soft: var(--hairline-soft);
   --color-rule-strong: var(--rule-strong);
   --shadow-float: var(--shadow-float);
-  --color-ochre: var(--ochre);
-  --color-ochre-wash: var(--ochre-wash);
   --color-moss: var(--moss);
   --color-moss-wash: var(--moss-wash);
   --color-amber: var(--amber);
@@ -152,7 +165,7 @@
     @apply bg-background text-foreground antialiased;
   }
   ::selection {
-    background: var(--ochre-wash);
+    background: color-mix(in srgb, var(--signal) 60%, white);
     color: var(--ink);
   }
   h1,
@@ -165,9 +178,13 @@
     text-decoration-thickness: 1px;
   }
   :focus-visible {
-    outline: 2px solid var(--ochre);
+    outline: 2px solid var(--ink);
     outline-offset: 3px;
     border-radius: 6px;
+  }
+  /* Over images and black panels the ring turns white so it stays visible. */
+  .on-dark :focus-visible {
+    outline-color: #ffffff;
   }
   /* Accordions open smoothly where the browser can animate to an auto height. */
   @supports (interpolate-size: allow-keywords) {
@@ -204,71 +221,104 @@
 }
 
 @layer components {
-  /* The editorial canvas: wide, fluid, with one shared gutter. */
+  /* The editorial canvas: up to 1520px of content, with one shared gutter. */
   .canvas {
     width: 100%;
-    max-width: 104rem;
+    max-width: calc(95rem + 2 * var(--gutter));
     margin-inline: auto;
     padding-inline: var(--gutter);
   }
 
-  /* Display type (Instrument Serif): headlines only. */
+  /*
+   * The masthead face: narrow, heavy, uppercase Archivo, for "What's new", section labels and
+   * the subject index. Never over an image, never for reading.
+   */
+  .masthead {
+    font-family: var(--font-masthead);
+    font-stretch: 62%;
+    font-weight: 800;
+    text-transform: uppercase;
+    line-height: 0.86;
+    letter-spacing: -0.005em;
+  }
+  .masthead-xl {
+    font-size: clamp(4.25rem, 3rem + 5.6vw, 7.75rem);
+  }
+  /* A section's label: masthead type at reading scale, over a rule. */
+  .section-label {
+    font-family: var(--font-masthead);
+    font-stretch: 62%;
+    font-weight: 800;
+    text-transform: uppercase;
+    font-size: 1.25rem;
+    line-height: 1;
+    letter-spacing: 0.04em;
+  }
+
+  /* Headlines (Newsreader at its display optical size). */
   .display-xl {
     font-family: var(--font-display);
-    font-size: clamp(2.75rem, 1.6rem + 4.4vw, 6rem);
-    line-height: 0.98;
-    letter-spacing: -0.015em;
+    font-weight: 500;
+    font-size: clamp(2.5rem, 1.6rem + 3.6vw, 4.5rem);
+    line-height: 1;
+    letter-spacing: -0.02em;
   }
   .display-lg {
     font-family: var(--font-display);
-    font-size: clamp(2.25rem, 1.5rem + 2.8vw, 4rem);
-    line-height: 1.02;
-    letter-spacing: -0.01em;
+    font-weight: 500;
+    font-size: clamp(2rem, 1.4rem + 2.4vw, 3.375rem);
+    line-height: 1.04;
+    letter-spacing: -0.015em;
   }
   .display-md {
     font-family: var(--font-display);
-    font-size: clamp(1.75rem, 1.35rem + 1.4vw, 2.625rem);
-    line-height: 1.08;
-    letter-spacing: -0.005em;
+    font-weight: 500;
+    font-size: clamp(1.625rem, 1.3rem + 1.2vw, 2.25rem);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
   }
   .display-sm {
     font-family: var(--font-display);
-    font-size: clamp(1.375rem, 1.2rem + 0.6vw, 1.75rem);
-    line-height: 1.15;
+    font-weight: 500;
+    font-size: clamp(1.25rem, 1.1rem + 0.5vw, 1.5rem);
+    line-height: 1.18;
+    letter-spacing: -0.005em;
   }
 
   /* Reading type (Newsreader). */
   .standfirst {
     font-family: var(--font-serif);
-    font-size: clamp(1.125rem, 1rem + 0.45vw, 1.4rem);
+    font-size: clamp(1.0625rem, 0.98rem + 0.35vw, 1.1875rem);
     line-height: 1.5;
     color: var(--graphite);
   }
   .prose-editorial {
     font-family: var(--font-serif);
     font-size: 1.125rem;
-    line-height: 1.7;
+    line-height: 1.65;
     color: var(--ink);
     max-width: 68ch;
   }
   .pull-quote {
     font-family: var(--font-display);
     font-style: italic;
-    font-size: clamp(1.5rem, 1.2rem + 1vw, 2.125rem);
-    line-height: 1.2;
+    font-size: clamp(1.375rem, 1.15rem + 0.9vw, 1.875rem);
+    line-height: 1.22;
   }
 
-  /* One quiet label style, sentence case. */
+  /* One quiet label style: small uppercase Geist, never coloured. */
   .eyebrow {
-    font-size: 0.8125rem;
+    font-size: 0.6875rem;
     font-weight: 500;
-    letter-spacing: 0.01em;
-    color: var(--ochre);
+    letter-spacing: 0.08em;
+    line-height: 1.35;
+    text-transform: uppercase;
+    color: var(--slate);
   }
   .meta {
     font-size: 0.8125rem;
     line-height: 1.5;
-    color: var(--graphite);
+    color: var(--slate);
   }
 
   /* Headline links: quiet until hovered. */
@@ -280,7 +330,23 @@
     transition: text-decoration-color 160ms ease;
   }
   .headline-link:hover {
-    text-decoration-color: var(--ochre);
+    text-decoration-color: currentColor;
+  }
+  /* A text link that reads as a link before it's hovered. */
+  .text-link {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+    text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+    transition: text-decoration-color 160ms ease;
+  }
+  .text-link:hover {
+    text-decoration-color: currentColor;
+  }
+
+  /* The fade that keeps a headline readable over the lower part of any image. */
+  .image-scrim {
+    background: linear-gradient(180deg, rgb(7 7 15 / 0) 38%, rgb(7 7 15 / 0.82) 100%);
   }
 
   .fade-in {
@@ -294,22 +360,21 @@
     height: 1.05em;
     margin-left: 0.125rem;
     border-radius: 1px;
-    background: color-mix(in srgb, var(--ochre) 70%, transparent);
+    background: var(--ink);
     transform: translateY(0.18em);
   }
   .stream-caret-waiting {
     animation: omenai-caret 1.2s ease-in-out infinite;
   }
-  /* The one raised surface: ivory, a soft hairline, the card radius. */
+  /* The one raised surface: white, a soft hairline, the card radius. */
   .surface {
     background: var(--ivory);
-    border: 1px solid var(--hairline-soft);
+    border: 1px solid var(--hairline);
     border-radius: var(--radius);
   }
   /* A recessed surface for grouped, secondary material. */
   .surface-quiet {
-    /* Mixed in sRGB: oklch interpolates hue between these near-neutrals and drifts pink. */
-    background: color-mix(in srgb, var(--bone) 55%, var(--paper));
+    background: var(--bone);
     border-radius: var(--radius);
   }
 }

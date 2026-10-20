@@ -3,22 +3,31 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
 import { Slot } from 'radix-ui';
 
+/*
+ * Tags name things (a subject, a flag, a state); they don't colour-code them. The default is a
+ * hairline outline; `dark` sits over images, `ink` marks the one flag worth a stronger line, and
+ * the semantic variants are coloured text with a dot, never a fill (ADR-040).
+ */
 const badgeVariants = cva(
-  'group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-sm border border-transparent px-1.5 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!',
+  'group/badge inline-flex h-6 w-fit max-w-full min-w-0 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2.5 text-[0.6875rem] leading-none font-medium tracking-[0.08em] whitespace-nowrap uppercase transition-colors focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-white [&>svg]:pointer-events-none [&>svg]:size-3!',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground [a]:hover:bg-primary/80',
-        secondary: 'bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80',
+        default: 'border-tag-line text-graphite [a]:hover:border-ink [a]:hover:text-ink',
+        outline: 'border-tag-line text-graphite [a]:hover:border-ink [a]:hover:text-ink',
+        dark: 'border-white/60 text-white [a]:hover:border-white',
+        ink: 'border-ink text-ink',
+        secondary: 'border-transparent bg-bone text-graphite',
+        ghost: 'border-transparent text-graphite hover:bg-bone',
+        link: 'border-transparent text-ink underline-offset-4 hover:underline',
+        success:
+          'border-transparent px-0 text-moss before:size-1.5 before:rounded-full before:bg-current',
+        warning:
+          'border-transparent px-0 text-amber before:size-1.5 before:rounded-full before:bg-current',
+        danger:
+          'border-transparent px-0 text-oxide before:size-1.5 before:rounded-full before:bg-current',
         destructive:
-          'bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20',
-        outline: 'border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground',
-        ghost: 'hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50',
-        link: 'text-primary underline-offset-4 hover:underline',
-        ochre: 'bg-ochre-wash text-ochre',
-        success: 'bg-moss-wash text-moss',
-        warning: 'bg-amber-wash text-amber',
-        danger: 'bg-oxide-wash text-oxide',
+          'border-transparent px-0 text-oxide before:size-1.5 before:rounded-full before:bg-current',
       },
     },
     defaultVariants: {

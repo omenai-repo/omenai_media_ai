@@ -280,7 +280,7 @@ Newest entries are appended at the bottom. Don't rewrite history; supersede an e
 
 ## ADR-022 — Light-only editorial theme and one plain-language copy layer
 
-- **Status:** Implemented (2026-10-15), reviewed in a browser.
+- **Status:** Implemented (2026-10-15), reviewed in a browser. Palette and type superseded by ADR-040 (2026-10-20); the light-only decision, the copy layer and the accessibility rules stand.
 - **Decision:**
   - One art-directed light theme: paper, bone and ivory grounds, ink text, hairline rules, one terracotta-ochre accent, and muted moss, amber and oxide for status.
   - The `prefers-color-scheme: dark` tokens are removed and `color-scheme: light` is set. Dark mode is post-MVP.
@@ -657,3 +657,31 @@ Newest entries are appended at the bottom. Don't rewrite history; supersede an e
   5. **Presentation.** Each status says what the check found ("Found, but this passage doesn't seem to be about this point"), never that a point is verified. A lowered judgement is followed by its reason ("No quote I found confirms the exact date, figure or name asked about"). Streamed text is labelled "Writing · not yet checked"; the Studio preview already said "not yet checked or saved".
 - **No verification model call.** A second call to judge support semantically was considered and not built. It would add a full round trip (3–9 s live) to every chat answer and brief, and spend calls under a 60-a-day limit, for a judgement that is still not guaranteed. On the stored live answers, the deterministic rules lowered both false "sufficient" answers and none of the six correct ones. Revisit it if production data show misses that lexical rules can't catch.
 - **Trade-offs and limits.** Lexical and English-centred. The event vocabulary is finite: an event described in other words counts as not answering (research runs, which is the cautious side), and an event word used as the object of another verb ("agreed to return") reads as that event. Names aren't typed, so a place can pass for a person. A fair paraphrase sharing fewer than two words is flagged. The conflict check misses contradictions worded differently and can flag two measures of one subject. Statements the model didn't list aren't checked. Passing every check proves nothing about truth: the quote is shown beside each statement for the editor to judge.
+
+## ADR-040 — Newsroom redesign: white canvas, masthead type, colour only for meaning
+
+- **Status:** Implemented (2026-10-20). Browser-checked at 1440 and 390 px on `omenai_fixtures` (VERIFICATION.md). Source of truth: the approved Claude Design canvas "Omenai Newsroom Redesign" (version 25).
+- **Decision.** One design system for every screen, in `apps/web/src/app/globals.css` and the shared primitives, replacing ADR-022's palette and type:
+  - **Palette.** A white canvas (`paper`, `ivory`), ink `#0C0C0D`, graphite `#3D3D42`, slate `#66666C` for meta text, one wash (`bone` `#F3F2EE`) for recessed panels and image-free tiles. Token names are kept, so shadcn components and older classes inherit the new values.
+  - **One loud colour.** Signal yellow `#FFD233` marks the screen's primary action and the current workflow step, and nothing else. The ochre accent is retired.
+  - **Colour only for meaning.** Green for done, amber for a warning, red for a failure, each as coloured text or a dot; a wash only for a real warning or failure. Subjects and media types are named in neutral outline tags, never colour-coded. Work in progress (researching, writing, retrying, running) is ink or grey.
+  - **Type.** Narrow, heavy, uppercase Archivo (`.masthead`, width axis at 62%) for "What's new", section labels, the subject index and big figures; Newsreader for headlines and reading text; Geist for the interface. Instrument Serif is gone.
+  - **Shape.** Pill controls (44 px on coarse pointers), 14–20 px cards, a 2 px ink focus ring with a white offset, which stays visible on black and over images.
+- **Screens.** Newsroom: "What's new" on the canvas above a full-width lead image (or, with no usable image, a black cover drawn with the subject's motif), then a subject index, a list of every story, and the rest of the edition in varied shapes. Story Review: a black scorecard, an "On this page" rail, numbered parts and a sticky Next step panel. Research: a collapsible Sources & checks sidebar beside the conversation (a sheet on phones). Studio: a format rail, a white writing sheet with a neutral check chip, history and checks beside it. Operations: an at-a-glance strip and one Background work panel. Team: the invite form beside the people and invitations.
+- **New read-only data (approved).** The lead story's research and draft state on the edition page, from the existing `getResearchStatus` and `getDraftStatus`. `getOperationsOverview` gains `running`: queued or running tasks with no failed attempt, not stopped by an editor and active within their kind's stale window (`staleAfterMs`), at most 20, with only the steps they recorded (ADR-037). No schema, index, route or business-logic change.
+- **Honesty rules kept in the visuals.** "Checked when written" becomes "Sources checked when written" (filled dot) against "Text not checked" (empty dot), so an edited draft never reads as checked. An image that fails to load is never named in a credit ("The source's image couldn't be loaded"). Owner pages still answer editors with the same 404, now styled.
+- **Trade-offs.** No Story Review previous/next links (needs data the page doesn't load; declined). No "saved by" on edition cards (the card DTO holds only the editorial state). The citation chip keeps its popover rather than driving the sidebar's evidence card. Studio on phones keeps its disclosures rather than the mock-up's bottom toolbar. Operations has no search, filters or "finished" group (no data for finished work; filters would be a new feature).
+- **Corrections after review (2026-10-20).**
+  - **Newsroom:** "What's New" is the page's name for every edition; the selected edition is shown only in a labelled "Select edition" control (day and time; "started by hand" instead of the old "Extra edition" naming).
+  - **No counts in the masthead or hero:** no "We reviewed…" line, and the lead's status is in words.
+  - **Notices:** one line each, with "Why fewer stories?" on request.
+  - **Order:** lead, More from this edition, subject index and the list at a glance, then Also reviewed last.
+  - **Layout from data:** sections come from a pure plan of the edition's data (`edition-plan.ts`), never from which edition it is.
+  - **Studio:** a white canvas and a wider editor.
+  - **Research:** a white sidebar.
+  - **Tags:** short tags that never wrap.
+  - **Footer:** compact on every page. The large signature was removed from the Newsroom too, at the product owner's request.
+  - **Secondary stories:** the canvas drew a full edition (one wide band, three columns, ranked rows) but no rule for fewer stories. With three stories, the third became a column alone in its row, and its 4:5 frame stretched to the page's width: 1520×1900 px at 1920. With five or more, a column that wrapped at 640–1180 px did the same.
+    - **Bands:** a row of columns is now used only when three stories fill it. Otherwise stories two to four are wide bands that alternate the image's side (left, right, left).
+    - **Columns:** they never wrap. Below 1024 px they become numbered rows with a small image.
+    - **Image frames:** every frame has a set size whatever the source's proportions: a band's image area, a column's 4:5 or 3:2 frame, a row's thumbnail. Images are cropped to fill. The exception is a tall image that would lose more than about 40% of its height: it is shown whole on a mat. Wide and panoramic images are always cropped. Image records carry no size or focal point, so crops are centred.

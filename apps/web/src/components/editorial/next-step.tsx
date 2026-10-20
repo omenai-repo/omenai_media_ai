@@ -85,28 +85,29 @@ export function WorkflowSteps({
             <span
               aria-hidden
               className={cn(
-                'absolute top-6 bottom-0 left-[0.6875rem] w-px',
-                step.state === 'done' ? 'bg-moss/40' : 'bg-hairline',
+                'absolute top-6 bottom-0 left-[0.625rem] w-0.5',
+                step.state === 'done' ? 'bg-ink' : 'bg-hairline',
               )}
             />
           ) : null}
+          {/* Done: ink with a tick. Current: the signal. Upcoming: an empty ring. */}
           <span
             aria-hidden
             className={cn(
-              'relative z-10 mt-0.5 flex size-[1.375rem] shrink-0 items-center justify-center rounded-full border',
-              step.state === 'done' && 'border-moss/50 bg-moss-wash text-moss',
-              step.state === 'current' && 'border-ochre bg-ivory',
-              step.state === 'upcoming' && 'border-hairline bg-ivory',
+              'relative z-10 flex size-[1.375rem] shrink-0 items-center justify-center rounded-full',
+              step.state === 'done' && 'bg-ink text-white',
+              step.state === 'current' && 'border-2 border-ink bg-signal',
+              step.state === 'upcoming' && 'border-2 border-rule-strong bg-ivory',
             )}
           >
-            {step.state === 'done' ? <Check className="size-3" /> : null}
-            {step.state === 'current' ? <span className="size-2 rounded-full bg-ochre" /> : null}
+            {step.state === 'done' ? <Check className="size-3" strokeWidth={3} /> : null}
+            {step.state === 'current' ? <span className="size-[7px] rounded-full bg-ink" /> : null}
           </span>
           <div className="min-w-0 leading-snug">
             <p
               className={cn(
-                'text-[0.9375rem]',
-                step.state === 'upcoming' ? 'text-graphite' : 'font-medium text-ink',
+                'text-[0.90625rem]',
+                step.state === 'upcoming' ? 'font-medium text-graphite' : 'font-semibold text-ink',
               )}
             >
               {step.href && step.state !== 'upcoming' ? (
@@ -120,7 +121,7 @@ export function WorkflowSteps({
                 {step.state === 'done' ? ' (done)' : step.state === 'current' ? ' (current)' : ''}
               </span>
             </p>
-            {step.note ? <p className="meta mt-0.5">{step.note}</p> : null}
+            {step.note ? <p className="meta mt-0.5 text-[0.78125rem]">{step.note}</p> : null}
           </div>
         </li>
       ))}
@@ -192,17 +193,24 @@ export function NextAction({
       };
   return (
     <div>
-      <Button asChild size="lg" className="w-full justify-between">
+      <Button
+        asChild
+        variant="signal"
+        size="lg"
+        className="h-[3.125rem] w-full justify-between pr-1.5 pl-5 text-[0.9375rem]"
+      >
         <Link href={action.href}>
-          {action.label} {action.icon}
+          {action.label}
+          <span className="inline-flex size-[38px] items-center justify-center rounded-full bg-ink text-white">
+            {action.icon}
+          </span>
         </Link>
       </Button>
-      <p className="meta mt-2.5">{action.help}</p>
+      <p className="meta mt-2.5 text-[0.78125rem] leading-[1.45]">{action.help}</p>
       {toStudio ? (
-        <Button asChild variant="quiet" className="mt-2 -ml-0.5">
+        <Button asChild variant="outline" className="mt-2.5 h-11 w-full font-medium">
           <Link href={researchHref}>
             {research.state === 'running' ? 'Follow the research' : 'Continue research'}
-            <ArrowRight aria-hidden />
           </Link>
         </Button>
       ) : null}

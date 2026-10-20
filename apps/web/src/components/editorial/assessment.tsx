@@ -5,7 +5,8 @@ import { CircleCheck, CircleSlash, PauseCircle } from 'lucide-react';
 import { CONFIDENCE } from './copy';
 import { dimensionLabel, dimensionWeight, formatDate } from './format';
 
-const BAND: Record<ScoreBand, string> = {
+/** A score band in words, with its threshold. */
+export const BAND: Record<ScoreBand, string> = {
   priority: `A priority: ${SCORE_THRESHOLDS.priority} or above`,
   shortlist: `Meets our standard of ${SCORE_THRESHOLDS.shortlist}`,
   below_threshold: `Below our bar of ${SCORE_THRESHOLDS.shortlist}`,
@@ -17,7 +18,7 @@ function Dots({ score }: { score: number }) {
       {Array.from({ length: 5 }, (_, i) => (
         <span
           key={i}
-          className={i < score ? 'size-2 rounded-full bg-ochre' : 'size-2 rounded-full bg-hairline'}
+          className={i < score ? 'size-2 rounded-full bg-ink' : 'size-2 rounded-full bg-hairline'}
         />
       ))}
     </span>
@@ -34,31 +35,43 @@ const CHECK = {
  * The full assessment, for editors who want to see the workings: score by dimension, every
  * editorial check, and which model assessed it. Scores guide attention; they never approve.
  */
-export function Assessment({ story }: { story: StoryDetailDto }) {
+export function Assessment({
+  story,
+  summary = true,
+}: {
+  story: StoryDetailDto;
+  /** The total and band; off where a scorecard already shows them. */
+  summary?: boolean;
+}) {
   const { total, band, confidence } = story.score;
   return (
     <div className="grid gap-10">
-      <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
-        <div>
-          <p className="meta">Overall score</p>
-          <p className="display-lg tabular-nums">
-            {total ?? '—'}
-            <span className="font-sans text-base text-graphite"> / 100</span>
-          </p>
+      {summary ? (
+        <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
+          <div>
+            <p className="meta">Overall score</p>
+            <p className="masthead text-[3.5rem] leading-none tabular-nums">
+              {total ?? '—'}
+              <span className="font-sans text-base font-normal text-graphite normal-case">
+                {' '}
+                / 100
+              </span>
+            </p>
+          </div>
+          <div className="pb-2">
+            {band ? (
+              <p className="text-ink">{BAND[band]}</p>
+            ) : (
+              <p className="text-ink">Not scored yet</p>
+            )}
+            {confidence ? <p className="meta">{CONFIDENCE[confidence] ?? confidence}</p> : null}
+          </div>
         </div>
-        <div className="pb-2">
-          {band ? (
-            <p className="text-ink">{BAND[band]}</p>
-          ) : (
-            <p className="text-ink">Not scored yet</p>
-          )}
-          {confidence ? <p className="meta">{CONFIDENCE[confidence] ?? confidence}</p> : null}
-        </div>
-      </div>
+      ) : null}
 
       {story.dimensions.length ? (
         <div>
-          <h3 className="mb-2 text-sm font-medium text-ink">How the score was built</h3>
+          <h3 className="mb-2 text-[0.84375rem] font-semibold text-ink">How the score was built</h3>
           <ul className="divide-y divide-hairline border-y border-hairline">
             {story.dimensions.map((d) => (
               <li
@@ -87,7 +100,7 @@ export function Assessment({ story }: { story: StoryDetailDto }) {
       ) : null}
 
       <div>
-        <h3 className="mb-2 text-sm font-medium text-ink">Editorial checks</h3>
+        <h3 className="mb-2.5 text-[0.84375rem] font-semibold text-ink">Editorial checks</h3>
         {story.gates.length ? (
           <ul className="grid gap-3">
             {story.gates.map((g) => {

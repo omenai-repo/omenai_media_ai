@@ -4,7 +4,7 @@ import { getModels } from '../db/models.js';
 import type { UsageRowDto } from '../newsroom/dto.js';
 import { startTestDatabase, type TestDatabase } from '../testing/index.js';
 import { seedFixtureNewsroom } from '../testing/seed.js';
-import { getOperationsOverview } from './overview.js';
+import { getOperationsOverview, RUNNING_LIMIT } from './overview.js';
 import { estimateRowCost, groupUsage, splitUsage } from './pricing.js';
 
 const row = (overrides: Partial<UsageRowDto>): UsageRowDto => ({
@@ -119,6 +119,8 @@ describe('operations overview', () => {
   it('reports the latest run and surfaces failures plainly, without hiding them', async () => {
     const now = new Date('2026-10-19T12:00:00Z');
     const { WorkflowRun, Task, AiUsage } = await getModels();
+    // The seed's runs are stamped with the wall clock, so this one is too (a minute later): it
+    // must be the newest run whatever day the test runs, not only before 06:00 on 19 October.
     await WorkflowRun.create({
       runKey: 'manual:2026-10-19T06:00:00.000Z',
       trigger: 'manual',
@@ -130,7 +132,7 @@ describe('operations overview', () => {
           at: new Date('2026-10-19T06:01:00Z'),
         },
       ],
-      createdAt: new Date('2026-10-19T06:00:00Z'),
+      createdAt: new Date(Date.now() + 60_000),
     });
     // Created with explicit timestamps: "retrying" versus "stalled" depends on recent activity.
     const at = (iso: string) => ({ createdAt: new Date(iso), updatedAt: new Date(iso) });
@@ -314,6 +316,136 @@ describe('operations overview', () => {
     expect(
       (await getOperationsOverview(now)).attention.find((a) => a.kind === 'run_stuck')?.automatic,
     ).toBe(true);
+  });
+
+  it('lists only work going normally as running: never retrying, stale, stopped or finished work', async () => {
+    const now = new Date('2026-10-19T12:00:00Z');
+    const { Task, Story } = await getModels();
+    // Two stories: normal work on the second, so it can't supersede the first's failure (a later
+    // request of the same kind on the same story does that, by design).
+    const [story, other] = await Story.find({}, { _id: 1, headline: 1 })
+      .sort({ _id: 1 })
+      .limit(2)
+      .lean();
+    const at = (iso: string) => ({ createdAt: new Date(iso), updatedAt: new Date(iso) });
+    const task = (key: string, fields: Record<string, unknown>) => ({
+      key,
+      storyId: story!._id,
+      attempts: 1,
+      lastError: null,
+      ...fields,
+    });
+
+    // Work that is someone's concern, or done: none of it may be shown as running.
+    await Task.collection.insertMany([
+      // Retrying after a failed attempt (listed under attention instead).
+      task('research:retrying', {
+        kind: 'research',
+        status: 'running',
+        attempts: 2,
+        lastError: 'unavailable: 503',
+        ...at('2026-10-19T11:58:00Z'),
+      }),
+      // Running on paper but quiet past its window: stalled, not running.
+      task('generate:stale', {
+        kind: 'generate',
+        format: 'x_post',
+        status: 'running',
+        ...at('2026-10-19T11:00:00Z'),
+      }),
+      // A chat reply quiet for 3 minutes: stale for a chat (2), though fresh for anything else.
+      task('chat:quiet', { kind: 'chat', status: 'running', ...at('2026-10-19T11:57:00Z') }),
+      task('research:failed', {
+        kind: 'research',
+        status: 'failed',
+        lastError: 'invalid_request: prompt too long',
+        ...at('2026-10-19T11:59:00Z'),
+      }),
+    ]);
+    const before = await getOperationsOverview(now);
+    expect(before.running).toEqual([]);
+
+    // Work going normally, plus a reply the editor is stopping and one that finished.
+    await Task.collection.insertMany([
+      task('research:fresh', {
+        storyId: other!._id,
+        kind: 'research',
+        status: 'running',
+        requestKind: 'lead',
+        startedAt: new Date('2026-10-19T11:58:30Z'),
+        progress: {
+          step: 'read',
+          steps: [
+            {
+              step: 'sources',
+              startedAt: new Date('2026-10-19T11:58:31Z'),
+              counts: { sources: 2 },
+            },
+            { step: 'search', startedAt: new Date('2026-10-19T11:58:40Z'), counts: { found: 3 } },
+            { step: 'read', startedAt: new Date('2026-10-19T11:59:10Z'), counts: null },
+          ],
+        },
+        ...at('2026-10-19T11:59:20Z'),
+      }),
+      task('generate:waiting', {
+        storyId: other!._id,
+        kind: 'generate',
+        format: 'newsletter_item',
+        status: 'queued',
+        startedAt: null,
+        ...at('2026-10-19T11:59:00Z'),
+      }),
+      task('chat:stopping', {
+        storyId: other!._id,
+        kind: 'chat',
+        status: 'running',
+        cancelRequested: true,
+        ...at('2026-10-19T11:59:50Z'),
+      }),
+      task('generate:done', {
+        storyId: other!._id,
+        kind: 'generate',
+        format: 'linkedin_post',
+        status: 'succeeded',
+        ...at('2026-10-19T11:59:55Z'),
+      }),
+    ]);
+    const after = await getOperationsOverview(now);
+    // Adding normal work changes nothing about what needs attention.
+    expect(after.attention).toEqual(before.attention);
+    expect(after.running.map((r) => [r.kind, r.status])).toEqual([
+      ['research', 'running'],
+      ['generate', 'queued'],
+    ]);
+    const [research, draft] = after.running;
+    expect(research).toMatchObject({
+      storyId: String(other!._id),
+      headline: other!.headline,
+      focused: true,
+      startedAt: '2026-10-19T11:58:30.000Z',
+    });
+    // Exactly the steps recorded, nothing more.
+    expect(research!.progress).toEqual({
+      step: 'read',
+      steps: [
+        { step: 'sources', counts: { sources: 2 } },
+        { step: 'search', counts: { found: 3 } },
+        { step: 'read', counts: null },
+      ],
+    });
+    expect(draft).toMatchObject({ format: 'newsletter_item', focused: false, progress: null });
+
+    // Bounded however much is under way.
+    await Task.collection.insertMany(
+      Array.from({ length: RUNNING_LIMIT + 5 }, (_, i) =>
+        task(`discovery.evaluate:many:${i}`, {
+          kind: 'discovery.evaluate',
+          status: 'running',
+          ...at('2026-10-19T11:59:30Z'),
+        }),
+      ),
+    );
+    expect((await getOperationsOverview(now)).running).toHaveLength(RUNNING_LIMIT);
   });
 
   it('flags work that went quiet without an error, and stops listing a failed run once a later one completes', async () => {

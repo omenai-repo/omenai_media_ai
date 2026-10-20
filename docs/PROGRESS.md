@@ -1,18 +1,18 @@
 # Progress
 
-_Last updated: 2026-10-17_
+_Last updated: 2026-10-20_
 
 ## Status by phase
 
-| Phase                      | Status                                                                                |
-| -------------------------- | ------------------------------------------------------------------------------------- |
-| 0 — Audit, plan, records   | ✅ Done                                                                               |
-| 1 — Foundation             | ✅ Done (revised 2026-10-15: email + password auth, LLM layer, Atlas live)            |
-| 2 — Data model & discovery | ✅ Implemented and fixture-verified; a live run awaits approval                       |
-| 3 — Dashboard              | ✅ Done; editorial redesign and story imagery done and browser-reviewed (2026-10-15)  |
-| 4 — Research assistant     | ✅ Implemented and fixture-verified (2026-10-15); live run awaits approval            |
-| 5 — Content studio         | ✅ Implemented and fixture-verified (2026-10-16); a live draft awaits approval        |
-| 6 — Hardening & handover   | 🚧 In progress: offline work done (2026-10-16); live checks and deploy await approval |
+| Phase                      | Status                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------- |
+| 0 — Audit, plan, records   | ✅ Done                                                                                |
+| 1 — Foundation             | ✅ Done (revised 2026-10-15: email + password auth, LLM layer, Atlas live)             |
+| 2 — Data model & discovery | ✅ Implemented and fixture-verified; a live run awaits approval                        |
+| 3 — Dashboard              | ✅ Done; full newsroom redesign (ADR-040) browser-checked at 1440 and 390 (2026-10-20) |
+| 4 — Research assistant     | ✅ Implemented and fixture-verified (2026-10-15); live run awaits approval             |
+| 5 — Content studio         | ✅ Implemented and fixture-verified (2026-10-16); a live draft awaits approval         |
+| 6 — Hardening & handover   | 🚧 In progress: offline work done (2026-10-16); live checks and deploy await approval  |
 
 ## Completed
 
@@ -75,7 +75,7 @@ _Last updated: 2026-10-17_
   - The fixture seed (`pnpm db:seed-fixtures`, guarded to `*_fixtures` databases) is seeded in Atlas `omenai_fixtures`. The real smoke data in `omenai` is untouched.
 
 - **Editorial UI redesign and story imagery (2026-10-15).** No AI or Tavily calls.
-  - **Look and feel ("atelier edition", light only, ADR-022):** paper, bone and ivory grounds, ink text, one terracotta-ochre accent; Instrument Serif headlines, Newsreader reading text, Geist interface text; a fluid canvas up to 1440px with shared gutters.
+  - **Look and feel ("atelier edition", light only, ADR-022; palette and type superseded by ADR-040 on 2026-10-20):** paper, bone and ivory grounds, ink text, one terracotta-ochre accent; Instrument Serif headlines, Newsreader reading text, Geist interface text; a fluid canvas up to 1440px with shared gutters.
   - **Plain language:** one copy layer (`components/editorial/copy.ts`). Editors see "stories reviewed", "editorial checks" and "Needs checking first", never candidates, gates or run keys. Every non-recommended story gets one sentence from stored facts (`reviewReason`).
   - **Pages:**
     - Today's edition: a lead feature, a feature or grid for the rest, a small-edition note and "Also reviewed" with reasons.
@@ -338,9 +338,62 @@ _Last updated: 2026-10-17_
   - **Verified:** 94 unit cases across 12 domains and 40 cross-surface cases, each with passing and failing cases; 9 mutation tests all caught; replay over all stored live output (no change to the 56 found statements; both false "sufficient" answers lowered, the 6 correct ones kept); a 2-call live re-check (cases 2 and 5 now behave).
   - **Not guaranteed:** the checks are lexical and only lower confidence; passing them proves nothing about truth.
 
+- **Full newsroom redesign (2026-10-19 and 20).** ADR-040; checks and evidence in VERIFICATION.md. No model, search or production calls; fixtures only.
+  - **Design system:** white canvas, ink type, one signal yellow for the primary action and current step, colour only for done, warning and failure; neutral outline tags (no coloured tag backgrounds); Archivo masthead type, Newsreader headlines, Geist interface; pill controls; ink focus ring. The ochre accent and Instrument Serif are gone. Tokens keep their names, so every page inherits them.
+  - **Screens:** Newsroom (What's new above a full-width lead, a drawn black cover when there's no usable image, subject index, every story at a glance, varied secondary layouts), Story Review (scorecard, rail, numbered parts, sticky Next step), Research (collapsible Sources & checks sidebar; the conversation widens when it closes), Studio (format rail, writing sheet with a neutral check chip, history and checks), Operations (at-a-glance strip; Needs attention, Retrying on its own, Running now), Team (invite beside people and invitations, full width), the reading list, sign-in and a styled 404.
+  - **Data (read-only, approved):** the lead's research and draft state on the edition page; `running` in `getOperationsOverview` (bounded to 20, never failed, retrying, stopped or stale work) with a test.
+  - **Behaviour unchanged:** routes, APIs, schemas, scoring, discovery, research, chat streaming, Stop, drafts, versions, checks, permissions. Save and skip on cards became round icon toggles with the same calls and confirmation.
+  - **Test fix:** `ops.test.ts` "reports the latest run…" had pinned its newest run to 06:00 UTC on 19 October while the seed's runs take the wall clock; it failed from that moment. The run is now stamped after the seed's.
+
+- **Design consistency corrections (2026-10-20).** Product-owner review of ADR-040. Evidence is in VERIFICATION.md. Fixtures only.
+  - **Newsroom:**
+    - "What's New" for every edition; it was a date or "Extra edition…" on older ones.
+    - A labelled "Select edition" control showing the edition's day and time.
+    - No "We reviewed…" line, and no score, draft or source counts in the hero or on cards.
+    - Notices are compact.
+    - Order: lead, More from this edition, subject index and list, Also reviewed last.
+    - Sections come from `planEdition` (0, 1, 2–5 and 6+ stories) and nothing depends on which edition is shown.
+  - **Studio:** a white canvas, a wider editor, a 26.5rem panel, and disclosures below 1280px.
+  - **Research:** the sidebar is white.
+  - **Story Review:** the scorecard is smaller and no longer repeats the suggestion.
+  - **Shared:**
+    - Short, non-wrapping tags; one-word subject names on phones.
+    - A compact footer on every page. The large "Stories shaping culture" signature was removed from the Newsroom at the product owner's request (2026-10-20).
+    - A quieter environment strip.
+  - **Tests:** 9 new unit tests for the layout plan, the words-only status, the edition wording and the short outcome tags.
+
+- **Studio sidebar (2026-10-20).** The format rail grew from 6.5rem to 16rem (17rem at 1536px and up).
+  - **Each format shows:** its full name, length target, versions and latest date, and the check state of the latest text (neutral dots; an edited version never reads as checked). It also shows a draft being written and a request that didn't finish.
+  - **Also in the sidebar:**
+    - An unsaved-changes legend.
+    - A "Working from" block: research briefings, the sources the drafts cite, and the points still to confirm, with a link to the research.
+  - **Data:** all from the drafts view the page already loads; no new data.
+  - **Layout:** the checks and history panel sits beside the editor from 1400px. Below that it folds into the disclosures under the editor, so the sheet keeps 700px or more.
+  - **Fix:** that breakpoint is written in rem (`min-[87.5rem]`). A px value is ordered before Tailwind's rem breakpoints, so `lg:` overrode it.
+  - **Tests:** `formatStatus` and `limitText`, 7 tests.
+
+- **Studio scrolling and the edition list (2026-10-20).**
+  - **Studio:** from 1024px the page fills the window and each column scrolls on its own: the formats, the draft and the checks panel. Scrolling inside the checks panel never moves the draft or the page (`overscroll-contain`). Phones keep one page that scrolls as a whole.
+  - **Edition selector:** the native menu is replaced by a styled Radix select. Each edition shows two short lines: its day (the year only for an edition from another year than the latest), then its stories and when it was ready or started. There's a "Latest" tag, a "By hand" tag, a check on the one showing, and a "Recent editions" heading. An older edition opened from a link is listed under "Earlier".
+  - **The control** uses the same words as the list. While the chosen edition loads, it shows a spinner.
+  - **Choosing the latest edition** opens `/` rather than `/?run=…`. Only `/` reports a newer edition in preparation, and before this, choosing the latest from the menu hid that notice.
+  - **Data and tests:** everything comes from the run summaries the page already loads. `editionChoices` replaces `editionLabel`, with 3 new tests: wording, the year rule, and no invented day or time.
+
+- **Secondary story layout (2026-10-20).** Product-owner report: in a three-story live edition, story 03's image filled the screen and was cut off from its headline.
+  - **Cause:** the layout plan put stories three to five in a flex row of columns that grow to fill the row, each image in a fixed 4:5 or 3:2 frame. A column alone in its row took the page's width, and its frame grew with it: 1520×1900 px at 1920 wide. That happened in a three-story edition, and when a column wrapped onto its own line at 640–1180 px wide.
+  - **Fix, in the plan (`planEdition`):** columns are used only when three stories fill the row. Otherwise stories two to four are wide bands that alternate the image's side: left, right, left.
+  - **Fix, in the components:**
+    - The band (`FeatureStory`) gains `side`.
+    - The columns row never wraps; below 1024 px it becomes numbered rows with a small image.
+    - An image that fails to load in a band now switches to the drawn panel, and the credit says so. Before, the credit could still name the failed image.
+    - Bands show "Time-sensitive" as columns do.
+  - **Unchanged:** ranking, numbering, actions, data and the crop rules. Image records carry no size or focal point, so crops stay centred.
+  - **Tests:** the plan tests cover rank order for every edition from 2 to 9 stories, the alternating sides, and that no column is ever left alone.
+  - **Known, not changed:** at 768–1023 px the ranked rows (story 06 on) squeeze the headline into a column of about 170 px. This was the same before the change.
+
 ## In progress
 
-- Nothing mid-edit. Lint, typecheck, tests and build pass 16/16 (2026-10-18). The format check flags only `apps/worker/.mcp.json`, an untracked file not created by this work. Changes are uncommitted, awaiting review.
+- Nothing mid-edit. Lint, typecheck, tests and build pass 16/16 after the secondary story layout fix (2026-10-20). The format check flags only `apps/worker/.mcp.json`, a committed file this work didn't touch (see Next action). Changes are uncommitted, awaiting the product owner's review.
 
 ## Blockers / external setup needed
 
@@ -357,7 +410,7 @@ _Last updated: 2026-10-17_
 ## Known issues
 
 - Password reset works only once Resend is configured. Until then the forgot-password page says so, and there is no owner-side reset (re-inviting an existing email is refused). Resend is recommended before go-live.
-- With streamed pages, `notFound()` (an unknown story; an editor opening Team) renders the 404 view with HTTP 200 because the status is already sent. Verified that nothing leaks; the APIs return proper 403/404.
+- With streamed pages, `notFound()` (an unknown story; an editor opening Team) renders the 404 view with HTTP 200 because the status is already sent. Verified that nothing leaks; the APIs return proper 403/404. The view is now styled (ADR-040), but the browser tab still shows the page's static title (for example "Team"), as before.
 - Gemini free tier: occasional 503s under load (retried by tasks), no Pro-class quota, and prompts may be human-reviewed. Don't send confidential material in dev.
 - Atlas connection setup from this machine took about 16 s once (DNS/TLS). The worker ping was 148 ms once connected.
 - The Trigger.dev CLI's `tsconfck` has a TypeScript ^5 peer warning (we use 6.0.3); no observed effect.
@@ -409,14 +462,15 @@ _Last updated: 2026-10-17_
 
 ## Next action
 
-1. **Product owner decisions:**
+1. **Review the redesign** (ADR-040) in the browser, against the approved canvas. Known gaps, by decision or for want of data: no Story Review previous/next, no "saved by" on edition cards, no Operations search or filters, the citation popover doesn't drive the sidebar's evidence card, and Studio on phones keeps disclosures instead of a bottom toolbar.
+2. **Product owner decisions:**
    - Switch LinkedIn drafts to low reasoning? (Samples and timings in VERIFICATION.md.)
    - Approve, or not, the end-to-end checks (at most 3 calls): one LinkedIn draft through the real Trigger.dev worker, watched in the Studio preview, and one chat question with the real model's bursts. This reactivates the labelled automation editor and adds one draft version to `omenai_live_dev`.
    - Further live evaluation of the evidence checks on other stories (the approved chat-evaluation budget is used up). Proposed: the eight chat cases on two more stories in other domains, at most 24 Gemini calls, no Tavily.
-2. **Still pending from 2026-10-16:**
+3. **Still pending from 2026-10-16:**
    - Decide on `apps/worker/.mcp.json`: run Prettier on it, or add it to `.prettierignore`.
    - The editorial review of the live shortlist (L18).
-3. **Running processes:** none are running after the machine restart. Start `pnpm dev` and `trigger dev` before live work (LIVE_DEVELOPMENT.md).
+4. **Running processes:** a `next dev` on port 3000 was already running during this work and was left alone. Start `trigger dev` before live work (LIVE_DEVELOPMENT.md).
 
 ## Schedule (target Nov 1)
 

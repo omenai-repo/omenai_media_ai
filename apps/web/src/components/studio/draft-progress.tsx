@@ -48,7 +48,7 @@ export function DraftProgress({
             {spec.label} · version {version}
           </p>
           <h2 className="display-sm mt-1 flex items-center gap-2.5">
-            <Loader2 className="size-5 animate-spin text-ochre" aria-hidden />
+            <Loader2 className="size-5 animate-spin text-ink" aria-hidden />
             {queued ? 'Waiting to start' : 'Writing your draft'}
           </h2>
         </div>

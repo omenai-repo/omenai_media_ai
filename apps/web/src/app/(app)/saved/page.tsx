@@ -20,7 +20,7 @@ async function ReadingList() {
       <EmptyState title="Nothing saved yet" className="mt-10">
         <p>
           Save a story from{' '}
-          <Link href="/" className="underline decoration-ochre">
+          <Link href="/" className="text-link text-ink">
             today’s edition
           </Link>{' '}
           to keep it here for research or a pitch. The reading list is shared by the whole team,
@@ -31,15 +31,14 @@ async function ReadingList() {
   }
   return (
     <div className="mt-8">
-      <p className="meta mb-2">
+      <p className="border-b-2 border-ink pb-3 text-[0.8125rem] text-graphite">
         {stories.length} {stories.length === 1 ? 'story' : 'stories'}, shared by the whole team
       </p>
-      <div className="divide-y divide-hairline-soft">
+      <div className="divide-y divide-hairline">
         {stories.map((story) => (
           <StoryCard
             key={story.id}
             story={story}
-            variant="compact"
             actions={<RemoveFromListButton storyId={story.id} />}
             meta={story.saved ? [`Saved by ${story.saved.by}, ${formatDate(story.saved.at)}`] : []}
           />
@@ -52,15 +51,15 @@ async function ReadingList() {
 export default function SavedPage() {
   return (
     <>
-      <PageMasthead eyebrow="Saved stories" title="Your reading list" size="md">
+      <PageMasthead title="Reading list" size="masthead" className="pt-2 sm:pt-4">
         <p>Stories the team has kept for a closer look, research or a pitch.</p>
       </PageMasthead>
       <Suspense
         fallback={
           <div className="mt-6" aria-busy="true" aria-label="Loading the reading list">
             {Array.from({ length: 3 }, (_, i) => (
-              <div key={i} className="grid grid-cols-[9rem_1fr] gap-8 py-6">
-                <Skeleton className="aspect-square" />
+              <div key={i} className="grid grid-cols-[10.5rem_1fr] gap-8 py-6">
+                <Skeleton className="aspect-[3/2]" />
                 <div className="space-y-3">
                   <Skeleton className="h-3 w-40" />
                   <Skeleton className="h-7 w-3/4" />

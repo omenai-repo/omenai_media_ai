@@ -62,18 +62,19 @@ function NavLinks({
   );
 }
 
-/** Desktop navigation. Owner-only items are passed in only for owners; the server still enforces access. */
+/**
+ * Desktop navigation: one black pill, the current room in white. Owner-only items are passed in
+ * only for owners; the server still enforces access.
+ */
 export function DesktopNav({ items }: { items: NavItem[] }) {
   return (
     <NavLinks
       items={items}
-      className="hidden items-center gap-8 md:flex"
+      className="on-dark hidden items-center gap-0.5 rounded-full bg-ink p-[5px] lg:flex"
       linkClassName={(active) =>
         cn(
-          'py-1 text-sm',
-          active
-            ? 'text-ink underline decoration-ochre decoration-[1.5px] underline-offset-[0.6rem]'
-            : 'text-graphite hover:text-ink',
+          'rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap',
+          active ? 'bg-white text-ink' : 'text-white hover:bg-white/15',
         )
       }
     />
@@ -85,7 +86,12 @@ export function MobileNav({ items, name, role }: { items: NavItem[]; name: strin
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="-ml-2 md:hidden" aria-label="Open menu">
+        <Button
+          variant="outline"
+          size="icon"
+          className="border-hairline lg:hidden"
+          aria-label="Open menu"
+        >
           <Menu aria-hidden />
         </Button>
       </SheetTrigger>
@@ -102,8 +108,10 @@ export function MobileNav({ items, name, role }: { items: NavItem[]; name: strin
           className="flex flex-col px-4"
           linkClassName={(active) =>
             cn(
-              'border-b border-hairline py-3 font-display text-2xl',
-              active ? 'text-ochre' : 'text-ink',
+              'border-b border-hairline py-3 font-serif text-2xl font-medium',
+              active
+                ? 'text-ink underline decoration-2 underline-offset-[0.3em]'
+                : 'text-graphite hover:text-ink',
             )
           }
         />

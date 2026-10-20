@@ -109,7 +109,7 @@ function DialogTitle({ className, ...props }: React.ComponentProps<typeof Dialog
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn('font-display text-[1.625rem] leading-tight font-normal text-ink', className)}
+      className={cn('font-display text-[1.625rem] leading-tight font-medium text-ink', className)}
       {...props}
     />
   );

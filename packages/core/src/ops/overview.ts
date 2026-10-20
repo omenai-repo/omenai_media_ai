@@ -4,7 +4,12 @@ import { MAX_RUN_ATTEMPTS, RUN_QUIET_AFTER_MS } from '../discovery/runs.js';
 import type { RunSummaryDto } from '../newsroom/dto.js';
 import { toRunSummaryWithProgress, usageSince } from '../newsroom/queries.js';
 import { TASK_MAX_ATTEMPTS } from '../tasks/contracts.js';
-import { CHAT_STALE_MS, CHAT_STOPPED_MESSAGE } from '../tasks/service.js';
+import {
+  CHAT_STALE_MS,
+  CHAT_STOPPED_MESSAGE,
+  STALE_LOCK_MS,
+  staleAfterMs,
+} from '../tasks/service.js';
 import { PRICE_TABLE, splitUsage, type UsageSummaryDto } from './pricing.js';
 
 /**
@@ -45,9 +50,39 @@ export interface AttentionItem {
   detail: string;
 }
 
+/**
+ * Background work going normally: queued or running, no failed attempt, not stopped by an editor,
+ * and active within its kind's stale window. Anything else is under `attention` (retrying,
+ * stalled, failed) or finished, so nothing here is ever a problem shown as progress.
+ */
+export interface RunningTaskItem {
+  id: string;
+  kind: TaskDoc['kind'];
+  status: 'queued' | 'running';
+  runKey: string | null;
+  storyId: string | null;
+  headline: string | null;
+  /** Drafts: the format being written. */
+  format: string | null;
+  /** Research asked about one question (a lead or a reply's own follow-up). */
+  focused: boolean;
+  startedAt: string | null;
+  updatedAt: string | null;
+  /** The steps this attempt recorded, as stored (ADR-037): never estimated. */
+  progress: {
+    step: string | null;
+    steps: Array<{ step: string; counts: Record<string, number> | null }>;
+  } | null;
+}
+
+/** At most this many running tasks are listed: the page stays light while a run fans out. */
+export const RUNNING_LIMIT = 20;
+
 export interface OperationsOverviewDto {
   latestRun: RunSummaryDto | null;
   attention: AttentionItem[];
+  /** Work under way with nothing wrong, newest activity first (at most `RUNNING_LIMIT`). */
+  running: RunningTaskItem[];
   usage: {
     /** Usage the providers reported. */
     reported: UsageSummaryDto;
@@ -77,7 +112,7 @@ export async function getOperationsOverview(
 ): Promise<OperationsOverviewDto> {
   const { WorkflowRun, Task, Story } = await getModels();
   const since = new Date(now.getTime() - days * 86_400_000);
-  const [latest, recentRuns, tasks, usageRows] = await Promise.all([
+  const [latest, recentRuns, tasks, usageRows, runningTasks] = await Promise.all([
     WorkflowRun.findOne().sort({ createdAt: -1 }).lean(),
     WorkflowRun.find({ createdAt: { $gte: since } })
       .sort({ createdAt: -1 })
@@ -105,6 +140,33 @@ export async function getOperationsOverview(
       .limit(50)
       .lean(),
     usageSince(days, now),
+    // Read-only and bounded; served by the { status, updatedAt } index.
+    Task.find(
+      {
+        status: { $in: ['queued', 'running'] },
+        lastError: null,
+        cancelRequested: { $ne: true },
+        $or: [
+          { kind: 'chat', updatedAt: { $gte: new Date(now.getTime() - CHAT_STALE_MS) } },
+          { kind: { $ne: 'chat' }, updatedAt: { $gte: new Date(now.getTime() - STALE_LOCK_MS) } },
+        ],
+      },
+      {
+        kind: 1,
+        status: 1,
+        runKey: 1,
+        storyId: 1,
+        format: 1,
+        requestKind: 1,
+        startedAt: 1,
+        updatedAt: 1,
+        'progress.step': 1,
+        'progress.steps': 1,
+      },
+    )
+      .sort({ updatedAt: -1 })
+      .limit(RUNNING_LIMIT)
+      .lean(),
   ]);
 
   const attention: AttentionItem[] = [];
@@ -197,8 +259,15 @@ export async function getOperationsOverview(
     ),
   );
   const storyIds = [...new Set(tasks.flatMap((t) => (t.storyId ? [String(t.storyId)] : [])))];
+  // Headlines for the running list too; the attention checks below still use `storyIds` only.
+  const headlineIds = [
+    ...new Set([
+      ...storyIds,
+      ...runningTasks.flatMap((t) => (t.storyId ? [String(t.storyId)] : [])),
+    ]),
+  ];
   const [stories, laterStoryTasks] = await Promise.all([
-    storyIds.length ? Story.find({ _id: { $in: storyIds } }, { headline: 1 }).lean() : [],
+    headlineIds.length ? Story.find({ _id: { $in: headlineIds } }, { headline: 1 }).lean() : [],
     storyIds.length
       ? Task.find(
           {
@@ -274,9 +343,45 @@ export async function getOperationsOverview(
     });
   }
 
+  // The query bounds by the longest window; each kind's own window is applied here too.
+  const running: RunningTaskItem[] = runningTasks
+    .filter((task) => task.updatedAt >= new Date(now.getTime() - staleAfterMs(task.kind)))
+    .map((task) => {
+      const storyId = task.storyId ? String(task.storyId) : null;
+      // Projected by dotted path (no draft preview text is read), which the inferred type omits.
+      const { progress } = task as {
+        progress?: {
+          step?: string | null;
+          steps?: Array<{ step: string; counts?: unknown }> | null;
+        } | null;
+      };
+      return {
+        id: String(task._id),
+        kind: task.kind,
+        status: task.status as RunningTaskItem['status'],
+        runKey: task.runKey ?? null,
+        storyId,
+        headline: storyId ? (headlines.get(storyId) ?? null) : null,
+        format: task.format ?? null,
+        focused: task.requestKind === 'lead' || task.requestKind === 'followup',
+        startedAt: iso(task.startedAt),
+        updatedAt: iso(task.updatedAt),
+        progress: progress
+          ? {
+              step: progress.step ?? null,
+              steps: (progress.steps ?? []).map((s) => ({
+                step: s.step,
+                counts: (s.counts as Record<string, number> | null | undefined) ?? null,
+              })),
+            }
+          : null,
+      };
+    });
+
   return {
     latestRun: latest ? await toRunSummaryWithProgress(latest) : null,
     attention,
+    running,
     usage: { ...splitUsage(usageRows), days, pricesVerifiedOn: PRICE_TABLE.verifiedOn },
   };
 }

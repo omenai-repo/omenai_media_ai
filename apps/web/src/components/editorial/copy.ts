@@ -5,7 +5,16 @@ import {
   type ShortfallReason,
 } from '@repo/shared';
 
-import { formatDateTime, formatDay, formatLongDay } from './format';
+import {
+  dayParts,
+  dayToDate,
+  formatDate,
+  formatDateTime,
+  formatDay,
+  formatLongDate,
+  formatLongDay,
+  formatTime,
+} from './format';
 
 /**
  * Every editor-facing word for an internal state, in one place. Editors read "stories reviewed"
@@ -35,6 +44,109 @@ export function editionName(runKey: string): string {
   if (runKey.startsWith(MANUAL))
     return `Extra edition, ${formatDateTime(runKey.slice(MANUAL.length))}`;
   return 'Edition';
+}
+
+/**
+ * When an edition is from, for the Newsroom: its day, and the time it was ready (or, for one
+ * started by hand, the time it was started). The page's identity is always "What's New"; this
+ * only says which edition is showing.
+ */
+export function editionWhen(run: { runKey: string; completedAt: string | null }): {
+  day: string;
+  /** The same day, short, for narrow screens: "18 Oct 2026". */
+  shortDay: string;
+  time: string | null;
+  byHand: boolean;
+} {
+  if (run.runKey.startsWith(DAILY)) {
+    const day = run.runKey.slice(DAILY.length);
+    return {
+      day: formatLongDay(day),
+      shortDay: formatDay(day),
+      time: run.completedAt ? `ready ${formatTime(run.completedAt)}` : null,
+      byHand: false,
+    };
+  }
+  if (run.runKey.startsWith(MANUAL)) {
+    const started = run.runKey.slice(MANUAL.length);
+    return {
+      day: formatLongDate(started),
+      shortDay: formatDate(started),
+      time: formatTime(started),
+      byHand: true,
+    };
+  }
+  return {
+    day: run.completedAt ? formatLongDate(run.completedAt) : 'An edition',
+    shortDay: run.completedAt ? formatDate(run.completedAt) : 'An edition',
+    time: run.completedAt ? `ready ${formatTime(run.completedAt)}` : null,
+    byHand: false,
+  };
+}
+
+export interface EditionChoice {
+  runKey: string;
+  /** "Sunday 18 October": the year only for an edition from another year than the latest. */
+  day: string;
+  /** "8 stories · ready 01:07 CDT", or "3 stories · started 10:08 CDT" for one started by hand. */
+  detail: string;
+  /** "ready 01:07 CDT" or "started 10:08 CDT", when the records give it. */
+  time: string | null;
+  byHand: boolean;
+  /** The edition the Newsroom opens on. */
+  latest: boolean;
+}
+
+const validDate = (date: Date) => (Number.isNaN(date.getTime()) ? null : date);
+
+/** An edition's newsroom day, and the time it was ready (or started, when started by hand). */
+function editionMoment(run: { runKey: string; completedAt: string | null }): {
+  date: Date | null;
+  time: string | null;
+  byHand: boolean;
+} {
+  const ready = run.completedAt ? validDate(new Date(run.completedAt)) : null;
+  const readyAt = ready ? `ready ${formatTime(run.completedAt)}` : null;
+  if (run.runKey.startsWith(DAILY))
+    return {
+      date: validDate(dayToDate(run.runKey.slice(DAILY.length))),
+      time: readyAt,
+      byHand: false,
+    };
+  if (run.runKey.startsWith(MANUAL)) {
+    const started = run.runKey.slice(MANUAL.length);
+    const date = validDate(new Date(started));
+    return { date, time: date ? `started ${formatTime(started)}` : null, byHand: true };
+  }
+  return { date: ready, time: readyAt, byHand: false };
+}
+
+/**
+ * The edition selector's list: each edition in two short lines, its day, then how many stories it
+ * holds and when it was ready. `runs` come newest first, so the first is the latest edition.
+ */
+export function editionChoices(
+  runs: { runKey: string; completedAt: string | null; shortlisted: number }[],
+): EditionChoice[] {
+  const dated = runs.map((run) => ({ run, ...editionMoment(run) }));
+  const latestYear = dated[0]?.date ? dayParts(dated[0].date).year : null;
+  return dated.map(({ run, date, time, byHand }, index) => {
+    const parts = date ? dayParts(date) : null;
+    const day = parts
+      ? [parts.weekday, parts.day, parts.month, parts.year === latestYear ? null : parts.year]
+          .filter(Boolean)
+          .join(' ')
+      : 'An edition';
+    const stories = run.shortlisted ? plural(run.shortlisted, 'story', 'stories') : 'No stories';
+    return {
+      runKey: run.runKey,
+      day,
+      detail: [stories, time].filter(Boolean).join(' · '),
+      time,
+      byHand,
+      latest: index === 0,
+    };
+  });
 }
 
 const STAGE: Record<string, string> = {
@@ -150,6 +262,23 @@ export const OUTCOME: Record<CandidateOutcome, string> = {
   source_failed: 'Source couldn’t be read',
   deferred_late: 'Carried to the next edition',
 };
+/**
+ * A story that wasn't recommended, as a short tag that reads as one unit. The full reason is
+ * shown beside it, so nothing is lost by keeping the tag short.
+ */
+export const OUTCOME_SHORT: Record<CandidateOutcome, string> = {
+  qualified: 'Met standard',
+  below_threshold: 'Below bar',
+  gate_hold: 'Needs checking',
+  gate_reject: 'Failed checks',
+  suppressed_repeat: 'Already covered',
+  evaluation_failed: 'Not assessed',
+  source_failed: 'Source unreadable',
+  deferred_late: 'Carried over',
+};
+export const outcomeShort = (id: string) =>
+  (OUTCOME_SHORT as Record<string, string>)[id] ?? 'Reviewed';
+
 export const outcomeLabel = (id: string | null) =>
   id ? ((OUTCOME as Record<string, string>)[id] ?? 'Reviewed') : 'Not assessed yet';
 
@@ -248,8 +377,24 @@ export interface AttentionCopyInput {
 
 const quoted = (headline: string | null) => (headline ? `“${headline}”` : null);
 
+/** The kind of background work, as a short tag. */
+export function workKind(kind: string | null | undefined): string {
+  switch (kind) {
+    case 'research':
+      return 'Research';
+    case 'chat':
+      return 'Reply';
+    case 'generate':
+      return 'Draft';
+    case 'discovery.evaluate':
+      return 'Assessment';
+    default:
+      return 'Edition search';
+  }
+}
+
 /** The piece of work a background task was doing, as a noun phrase. */
-function workName(task: NonNullable<AttentionCopyInput['task']>): string {
+export function workName(task: { kind: string; headline: string | null }): string {
   const story = quoted(task.headline);
   switch (task.kind) {
     case 'discovery.evaluate':

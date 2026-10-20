@@ -1,7 +1,7 @@
 'use client';
 
 import type { ApiErrorResponse } from '@repo/shared';
-import { Bookmark, BookmarkCheck, Loader2, Undo2 } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Loader2, Undo2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 type State = 'none' | 'saved' | 'skipped';
 type Decision = 'save' | 'unsave' | 'skip' | 'unskip';
@@ -35,15 +36,23 @@ async function decide(storyId: string, decision: Decision, reason?: string): Pro
   return ((await response.json()) as { editorialState: State }).editorialState;
 }
 
-/** Save / skip controls. Server state is the source of truth; the page refreshes after a change. */
+/**
+ * Save / skip controls. Server state is the source of truth; the page refreshes after a change.
+ * `icons` is the round form used on edition cards (`lg` beside the lead's signal button);
+ * `buttons` the labelled form on the story page.
+ */
 export function DecisionButtons({
   storyId,
   state,
   compact = false,
+  appearance = 'buttons',
+  size: iconSize = 'md',
 }: {
   storyId: string;
   state: State;
   compact?: boolean;
+  appearance?: 'buttons' | 'icons';
+  size?: 'md' | 'lg';
 }) {
   const router = useRouter();
   const [current, setCurrent] = useState<State>(state);
@@ -66,39 +75,108 @@ export function DecisionButtons({
   const size = compact ? 'sm' : 'default';
   // Secondary to opening or researching a story: quiet on cards, outlined on the story page.
   const variant = compact ? 'ghost' : 'outline';
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      {current === 'saved' ? (
-        <Button
-          variant={variant}
-          size={size}
-          disabled={pending}
-          onClick={() => run('unsave', 'Removed from your reading list')}
-          aria-label="Saved. Remove from your reading list"
-        >
-          <BookmarkCheck aria-hidden className="text-ochre" /> Saved
-        </Button>
+  const round = cn(
+    'rounded-full border-hairline',
+    iconSize === 'lg' ? 'size-12' : 'size-10 pointer-coarse:size-11',
+  );
+  const controls =
+    appearance === 'icons' ? (
+      current === 'skipped' ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-[0.8125rem] text-graphite">Skipped</span>
+          <Button
+            variant="quiet"
+            disabled={pending}
+            onClick={() => run('unskip', 'Skip undone')}
+            className="font-semibold text-ink underline underline-offset-[3px]"
+          >
+            Undo skip
+          </Button>
+        </div>
       ) : (
-        <Button
-          variant={variant}
-          size={size}
-          disabled={pending || current === 'skipped'}
-          onClick={() => run('save', 'Saved to your reading list')}
-        >
-          {pending ? <Loader2 className="animate-spin" aria-hidden /> : <Bookmark aria-hidden />}
-          Save
-        </Button>
-      )}
-      {current === 'skipped' ? (
-        <Button variant="quiet" disabled={pending} onClick={() => run('unskip', 'Skip undone')}>
-          <Undo2 aria-hidden /> Skipped. Undo
-        </Button>
-      ) : (
-        <Button variant="quiet" disabled={pending} onClick={() => setSkipOpen(true)}>
-          Skip
-        </Button>
-      )}
+        <div className="flex items-center gap-1.5">
+          {current === 'saved' ? (
+            <Button
+              variant="default"
+              size="icon"
+              className={cn(round, 'border-ink')}
+              disabled={pending}
+              aria-pressed
+              aria-label="Save to your reading list"
+              title="Saved to your reading list. Select to remove it"
+              onClick={() => run('unsave', 'Removed from your reading list')}
+            >
+              <Bookmark aria-hidden className="fill-current" />
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="icon"
+              className={round}
+              disabled={pending}
+              aria-pressed={false}
+              aria-label="Save to your reading list"
+              title="Save to your reading list"
+              onClick={() => run('save', 'Saved to your reading list')}
+            >
+              {pending ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <Bookmark aria-hidden />
+              )}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="icon"
+            className={cn(round, 'text-graphite')}
+            disabled={pending}
+            aria-label="Skip this story"
+            title="Skip this story"
+            onClick={() => setSkipOpen(true)}
+          >
+            <X aria-hidden />
+          </Button>
+        </div>
+      )
+    ) : (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {current === 'saved' ? (
+          <Button
+            variant={variant}
+            size={size}
+            disabled={pending}
+            onClick={() => run('unsave', 'Removed from your reading list')}
+            aria-label="Saved. Remove from your reading list"
+          >
+            <BookmarkCheck aria-hidden /> Saved
+          </Button>
+        ) : (
+          <Button
+            variant={variant}
+            size={size}
+            disabled={pending || current === 'skipped'}
+            onClick={() => run('save', 'Saved to your reading list')}
+          >
+            {pending ? <Loader2 className="animate-spin" aria-hidden /> : <Bookmark aria-hidden />}
+            Save
+          </Button>
+        )}
+        {current === 'skipped' ? (
+          <Button variant="quiet" disabled={pending} onClick={() => run('unskip', 'Skip undone')}>
+            <Undo2 aria-hidden /> Skipped. Undo
+          </Button>
+        ) : (
+          <Button variant="quiet" disabled={pending} onClick={() => setSkipOpen(true)}>
+            Skip
+          </Button>
+        )}
+      </div>
+    );
 
+  return (
+    <>
+      {controls}
       <Dialog open={skipOpen} onOpenChange={setSkipOpen}>
         <DialogContent>
           <DialogHeader>
@@ -133,7 +211,7 @@ export function DecisionButtons({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 

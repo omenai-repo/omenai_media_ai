@@ -77,7 +77,7 @@ Omenai needs an AI-assisted editorial newsroom by **2026-11-01** (18 days from 2
 - **Database.** Mongoose models live in `@repo/core/src/db/models/*`, with schema-level indexes and `syncIndexes()` in the bootstrap. There is **one shared native `MongoClient`**: Mongoose uses it via `mongoose.createConnection().setClient(client)` (documented API), and Better Auth's `mongodbAdapter(client.db(), { client })` uses the same client. This avoids two connection pools on Atlas M0. The client is cached on `globalThis` for Next.js dev reloads and serverless reuse, with a small `maxPoolSize`. **To verify at install:** the `mongodb` driver versions required by Mongoose and `@better-auth/mongo-adapter` must resolve to one compatible version. If they can't, fall back to two clients and document the extra pool. LLM structured outputs are still validated with Zod (the API contract) before they're written through Mongoose.
 - **Concurrency guard.** Per-run "leases" (`leaseExpiresAt`) let a crashed run be detected and resumed.
 - **UI library: shadcn/ui.** shadcn uses Radix primitives, so accessibility comes built in. Its components are copied into `apps/web/src/components/ui` and restyled so they don't look like stock shadcn:
-  - an editorial palette (warm paper, ink, hairline rules, an ochre accent)
+  - an editorial palette (warm paper, ink, hairline rules, an ochre accent; replaced on 2026-10-20 by ADR-040: white canvas, ink, one signal yellow, colour only for meaning)
   - a Newsreader serif for headlines and Geist for the UI
   - restrained radii and subtle motion
 
@@ -257,7 +257,7 @@ Routes:
 - `/operations` (runs with funnel and shortfall reasons, failed tasks, token usage, the English-only limitation notice; owner-only "Run discovery now")
 - `/settings/team` (owner-only users and invitations)
 
-**Design system first:** the shadcn base themed with Omenai tokens (paper/bone/ivory grounds, ink text, hairline rules, ochre accent; **light only**, see ADR-022) and an editorial type scale. Editorial components live in `apps/web/src/components/editorial/` (redesign, 2026-10-15). On top of it go domain components: StoryCard, ScoreBreakdown, GateList, SourceList, CitationChip, StatusPill, EmptyState, ErrorState, VersionTimeline. Every data screen has loading, empty, error and success states.
+**Design system first:** the shadcn base themed with Omenai tokens (since 2026-10-20: a white canvas, ink text, hairline rules, one signal yellow and colour only for meaning, ADR-040; **light only**, see ADR-022) and an editorial type scale. Editorial components live in `apps/web/src/components/editorial/` (redesign, 2026-10-15). On top of it go domain components: StoryCard, ScoreBreakdown, GateList, SourceList, CitationChip, StatusPill, EmptyState, ErrorState, VersionTimeline. Every data screen has loading, empty, error and success states.
 
 ## Phases and acceptance criteria
 

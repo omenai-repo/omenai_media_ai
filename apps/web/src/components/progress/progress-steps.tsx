@@ -53,7 +53,7 @@ export function ProgressSteps({
               {step.state === 'done' ? (
                 <Check className="size-4 text-moss" />
               ) : step.state === 'now' ? (
-                <Loader2 className="size-4 animate-spin text-ochre" />
+                <Loader2 className="size-4 animate-spin text-ink" />
               ) : step.state === 'skipped' ? (
                 <Minus className="size-3.5 text-stone" />
               ) : (

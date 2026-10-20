@@ -15,7 +15,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-30 border-b border-hairline bg-paper/95 backdrop-blur-sm">
         <Suspense
           fallback={
-            <div className="canvas flex h-16 items-center md:h-[4.5rem]">
+            <div className="canvas flex min-h-16 items-center lg:min-h-20">
               <Wordmark />
             </div>
           }
@@ -23,13 +23,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <AppHeader />
         </Suspense>
       </header>
-      <main id="main" className="canvas flex-1 pt-10 pb-24 md:pt-14">
+      <main id="main" className="canvas flex-1 pt-5 pb-16 md:pt-6 md:pb-20">
         {children}
       </main>
-      <footer className="border-t border-hairline">
-        <div className="canvas flex flex-wrap items-baseline justify-between gap-2 py-6">
-          <span className="font-display text-lg text-graphite italic">Stories Shaping Culture</span>
-          <span className="meta">Omenai Newsroom · for the editorial team</span>
+      {/* One compact footer on every page. */}
+      <footer className="canvas">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-hairline py-5">
+          <p className="text-[0.8125rem] font-medium text-ink">
+            Omenai Newsroom{' '}
+            <span className="font-normal text-slate">· Stories shaping culture</span>
+          </p>
+          <p className="meta">For the editorial team</p>
         </div>
       </footer>
     </div>

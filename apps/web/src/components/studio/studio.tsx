@@ -1,12 +1,6 @@
 'use client';
 
-import type {
-  DraftFormatDto,
-  DraftProgressDto,
-  DraftTaskDto,
-  DraftVersionDto,
-  DraftsViewDto,
-} from '@repo/core';
+import type { DraftProgressDto, DraftTaskDto, DraftVersionDto, DraftsViewDto } from '@repo/core';
 import {
   DRAFT_FORMAT_IDS,
   DRAFT_FORMATS,
@@ -30,6 +24,8 @@ import { WorkspaceHeader } from '@/components/workspace/workspace-header';
 import { cn } from '@/lib/utils';
 
 import { DraftProgress } from './draft-progress';
+import { FormatRail } from './format-rail';
+import { limitText } from './format-status';
 import { ChecksPanel, VersionHistory, versionOrigin } from './side-panels';
 
 /** While a draft is written, its steps and text are read this often (one small query). */
@@ -62,13 +58,6 @@ async function send(url: string, method: 'POST' | 'PUT', body: unknown): Promise
   return json;
 }
 
-function limitText(format: DraftFormat): string {
-  const { limit } = DRAFT_FORMATS[format];
-  return limit.unit === 'characters'
-    ? `Up to ${limit.max.toLocaleString('en-GB')} characters`
-    : `About ${limit.min.toLocaleString('en-GB')}–${limit.max.toLocaleString('en-GB')} words`;
-}
-
 const START_TITLE: Record<DraftFormat, string> = {
   newsletter_item: 'Write a Weekly Briefing item',
   editorial_article: 'Write an editorial article',
@@ -92,15 +81,6 @@ function startingFormat(view: DraftsViewDto, wanted: DraftFormat | null): DraftF
     DRAFT_FORMAT_IDS.find((f) => view.formats[f].versions.length || view.formats[f].activeTask) ??
     'newsletter_item'
   );
-}
-
-function formatState(entry: DraftFormatDto): string {
-  if (entry.activeTask) return 'Writing…';
-  const latest = entry.versions[0];
-  if (latest)
-    return `${entry.versions.length === 1 ? '1 version' : `${entry.versions.length} versions`} · ${formatDateTime(latest.createdAt)}`;
-  if (entry.lastFailure) return 'Didn’t finish';
-  return 'Not started';
 }
 
 /**
@@ -354,18 +334,25 @@ export function DraftStudio({
       ),
     [edits, view.formats],
   );
+  const unsavedFormats = useMemo(
+    () =>
+      new Set(DRAFT_FORMAT_IDS.filter((f) => [...unsavedIn].some((k) => k.startsWith(`${f}:`)))),
+    [unsavedIn],
+  );
 
   const hasDrafts = DRAFT_FORMAT_IDS.some((f) => view.formats[f].versions.length);
   const status = writing
     ? { label: 'Writing a draft', tone: 'text-graphite' }
     : anyDirty
-      ? { label: 'Unsaved changes', tone: 'text-amber' }
+      ? { label: 'Unsaved changes', tone: 'text-graphite' }
       : hasDrafts
         ? { label: 'All changes saved', tone: 'text-moss' }
         : null;
 
   return (
-    <div className="flex min-h-dvh flex-col bg-paper">
+    // On wide screens the studio fills the window and each column scrolls on its own: the
+    // formats, the draft and the checks. Phones keep one page that scrolls as a whole.
+    <div className="flex min-h-dvh flex-col bg-paper lg:h-dvh">
       <WorkspaceHeader
         storyId={story.id}
         eyebrow={story.eyebrow}
@@ -374,19 +361,22 @@ export function DraftStudio({
       >
         {status ? (
           <p
-            className={cn('inline-flex shrink-0 items-center gap-1.5 text-xs', status.tone)}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 text-[0.8125rem] font-semibold',
+              status.tone,
+            )}
             role="status"
             aria-label={status.label}
           >
             {writing ? (
-              <Loader2 className="size-3 animate-spin" aria-hidden />
+              <Loader2 className="size-3.5 animate-spin" aria-hidden />
             ) : (
-              <span aria-hidden className="size-1.5 rounded-full bg-current" />
+              <span aria-hidden className="size-[7px] rounded-full bg-current" />
             )}
             <span className="hidden sm:inline">{status.label}</span>
           </p>
         ) : null}
-        <Button asChild variant="outline" size="sm">
+        <Button asChild variant="outline" size="sm" className="h-10 px-4 pointer-coarse:h-11">
           <Link href={`/stories/${story.id}/research`}>
             <span className="hidden sm:inline">Research</span>
             <span className="sr-only sm:hidden">Research</span>
@@ -395,300 +385,320 @@ export function DraftStudio({
         </Button>
       </WorkspaceHeader>
 
-      <div className="mx-auto grid w-full max-w-[90rem] flex-1 grid-cols-[minmax(0,1fr)] gap-8 px-4 pt-6 pb-16 sm:px-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 lg:pt-10 xl:grid-cols-[15rem_minmax(0,1fr)_21rem]">
-        {/* Formats */}
-        <nav aria-label="Formats" className="min-w-0 lg:sticky lg:top-6 lg:self-start">
-          <p className="meta mb-3 hidden lg:block">Formats</p>
-          <ul className="-mx-4 flex [scrollbar-width:none] gap-2 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6 lg:mx-0 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0">
-            {DRAFT_FORMAT_IDS.map((f) => {
-              const current = f === format;
-              const unsaved = [...unsavedIn].some((k) => k.startsWith(`${f}:`));
-              return (
-                <li key={f} className="shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setFormat(f)}
-                    aria-current={current ? 'page' : undefined}
-                    className={cn(
-                      'block rounded-md border px-3 py-2 text-left transition-colors lg:w-full lg:px-3.5 lg:py-2.5',
-                      current
-                        ? 'border-hairline-soft bg-ivory shadow-xs'
-                        : 'border-transparent hover:bg-bone/50',
-                    )}
-                  >
-                    <span className="flex items-center gap-2 text-sm font-medium whitespace-nowrap text-ink">
-                      {DRAFT_FORMATS[f].label}
-                      {unsaved ? (
-                        <span
-                          className="size-1.5 rounded-full bg-amber"
-                          aria-label="unsaved changes"
-                        />
-                      ) : null}
-                    </span>
-                    <span className="meta mt-0.5 hidden lg:block">
-                      {formatState(view.formats[f])}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+      <div className="grid w-full flex-1 grid-cols-[minmax(0,1fr)] lg:min-h-0 lg:grid-cols-[16rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] min-[87.5rem]:grid-cols-[16rem_minmax(0,1fr)_24rem] 2xl:grid-cols-[17rem_minmax(0,1fr)_26rem]">
+        <FormatRail
+          view={view}
+          format={format}
+          unsaved={unsavedFormats}
+          storyId={story.id}
+          onSelect={setFormat}
+        />
 
         {/* Editor */}
-        <section aria-label={spec.label} className="min-w-0">
-          {!researched ? (
-            <EmptyState title="Research this story first">
-              <p>
-                Drafts are written from the story’s research, so their statements can be traced back
-                to its sources.
-              </p>
-              <Button asChild className="mt-6">
-                <Link href={`/stories/${story.id}/research`}>
-                  Research this story <ArrowRight aria-hidden />
-                </Link>
-              </Button>
-            </EmptyState>
-          ) : !shown ? (
-            <StartCard
-              format={format}
-              briefs={view.research.briefs}
-              active={progressOf(format)}
-              serverNow={serverNow}
-              failure={entry.lastFailure}
-              instructions={instructions}
-              onInstructions={setInstructions}
-              busy={requesting}
-              onStart={() => void request({ instructions, fromVersion: null })}
-            />
-          ) : (
-            <div className="space-y-5">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <h2 className="display-sm">{spec.label}</h2>
-                <p className="meta">
-                  Version {shown.version} · {versionOrigin(shown)} ·{' '}
-                  {formatDateTime(shown.createdAt)}
+        <section
+          aria-label={spec.label}
+          className="min-w-0 px-4 pt-6 pb-16 sm:px-6 lg:overflow-y-auto lg:overscroll-contain lg:px-8 lg:pt-7 2xl:px-10"
+        >
+          <div className="mx-auto max-w-[60rem]">
+            {!researched ? (
+              <EmptyState
+                title="Research this story first"
+                className="border border-hairline bg-ivory"
+              >
+                <p>
+                  Drafts are written from the story’s research, so their statements can be traced
+                  back to its sources.
                 </p>
-              </div>
-
-              {entry.activeTask ? (
-                <DraftProgress
-                  task={progressOf(format) ?? entry.activeTask}
-                  format={format}
-                  version={(latest?.version ?? 0) + 1}
-                  serverNow={serverNow}
-                  bounded
-                />
-              ) : entry.lastFailure ? (
-                <StatusNote tone="attention" title="The last draft didn’t finish." role="alert">
-                  {failureText(entry.lastFailure.lastError)} Nothing from it was saved.{' '}
-                  <button
-                    type="button"
-                    className="font-medium text-ink underline decoration-ochre underline-offset-4"
-                    disabled={requesting}
-                    onClick={() =>
-                      void request({
-                        instructions: entry.lastFailure?.instructions ?? '',
-                        fromVersion: entry.lastFailure?.fromVersion ?? null,
-                      })
-                    }
-                  >
-                    Try again
-                  </button>
-                </StatusNote>
-              ) : null}
-
-              {latest && shown.version !== latest.version ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-bone/60 px-4 py-3 text-sm text-ink">
-                  <span>
-                    You’re looking at version {shown.version}. The latest is version{' '}
-                    {latest.version}.
-                  </span>
-                  <span className="flex flex-wrap gap-2">
-                    <Button
-                      variant="quiet"
-                      size="sm"
-                      onClick={() => setSelected((s) => ({ ...s, [format]: undefined }))}
-                    >
-                      Back to the latest
-                    </Button>
-                    {!dirty ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={saving}
-                        onClick={() =>
-                          void save({ title: shown.title, body: shown.body }, shown, true)
-                        }
-                      >
-                        <RotateCcw aria-hidden /> Restore as version {latest.version + 1}
-                      </Button>
-                    ) : null}
-                  </span>
-                </div>
-              ) : null}
-
-              <div onKeyDown={onEditorKey} className="surface overflow-hidden">
-                {spec.hasTitle ? (
-                  <div className="border-b border-hairline-soft px-5 pt-4 pb-3 sm:px-7">
-                    <Label htmlFor="draft-title" className="meta">
-                      Headline
-                    </Label>
-                    <Input
-                      id="draft-title"
-                      value={title}
-                      maxLength={300}
-                      onChange={(event) => change('title', event.target.value)}
-                      className="mt-1 h-auto border-0 bg-transparent px-0 py-1 font-display text-[1.75rem] leading-tight shadow-none focus-visible:ring-0 md:text-[1.75rem]"
-                    />
-                  </div>
-                ) : null}
-                <Label htmlFor="draft-body" className="sr-only">
-                  {spec.label} text
-                </Label>
-                <Textarea
-                  id="draft-body"
-                  value={body}
-                  onChange={(event) => change('body', event.target.value)}
-                  className={cn(
-                    'field-sizing-content rounded-none border-0 bg-transparent px-5 py-5 font-serif text-[1.125rem] leading-[1.7] text-ink shadow-none focus-visible:ring-0 sm:px-7',
-                    format === 'editorial_article' ? 'min-h-[32rem]' : 'min-h-[14rem]',
-                  )}
-                />
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline-soft bg-bone/40 px-5 py-3 sm:px-7">
-                  <p
-                    className={cn(
-                      'text-sm tabular-nums',
-                      measure.overLimit
-                        ? measure.uncertain
-                          ? 'font-medium text-amber'
-                          : 'font-medium text-oxide'
-                        : 'text-graphite',
-                    )}
-                    aria-live="polite"
-                  >
-                    {measure.summary}
-                    {measure.uncertain
-                      ? '. It has something X may count as a 23-character link. Check the count in X before posting.'
-                      : measure.overLimit
-                        ? '. Over the limit: shorten it before posting.'
-                        : measure.outsideGuidance
-                          ? '. Outside the usual length.'
-                          : format === 'x_post'
-                            ? ', counted as X counts them.'
-                            : ''}
+                <Button asChild className="mt-6">
+                  <Link href={`/stories/${story.id}/research`}>
+                    Research this story <ArrowRight aria-hidden />
+                  </Link>
+                </Button>
+              </EmptyState>
+            ) : !shown ? (
+              <StartCard
+                format={format}
+                briefs={view.research.briefs}
+                active={progressOf(format)}
+                serverNow={serverNow}
+                failure={entry.lastFailure}
+                instructions={instructions}
+                onInstructions={setInstructions}
+                busy={requesting}
+                onStart={() => void request({ instructions, fromVersion: null })}
+              />
+            ) : (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="masthead text-[1.875rem] leading-[0.9] sm:text-[2.125rem]">
+                    {spec.label}
+                  </h2>
+                  <p className="mt-1.5 text-[0.84375rem] text-graphite">
+                    {spec.purpose.replace(/\.$/, '')} · {limitText(format).toLowerCase()}
                   </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {dirty ? (
-                      <Button variant="quiet" size="sm" onClick={discard} disabled={saving}>
-                        <Undo2 aria-hidden /> Discard changes
-                      </Button>
-                    ) : null}
-                    <Button variant="outline" size="sm" onClick={() => void copy()}>
-                      <Copy aria-hidden /> Copy text
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={!dirty || saving}
+                </div>
+
+                {entry.activeTask ? (
+                  <DraftProgress
+                    task={progressOf(format) ?? entry.activeTask}
+                    format={format}
+                    version={(latest?.version ?? 0) + 1}
+                    serverNow={serverNow}
+                    bounded
+                  />
+                ) : entry.lastFailure ? (
+                  <StatusNote tone="attention" title="The last draft didn’t finish." role="alert">
+                    {failureText(entry.lastFailure.lastError)} Nothing from it was saved.{' '}
+                    <button
+                      type="button"
+                      className="text-link font-medium text-ink"
+                      disabled={requesting}
                       onClick={() =>
-                        void save({ title, body, fromLatest: edit?.fromLatest }, shown)
+                        void request({
+                          instructions: entry.lastFailure?.instructions ?? '',
+                          fromVersion: entry.lastFailure?.fromVersion ?? null,
+                        })
                       }
                     >
-                      {saving ? <Loader2 className="animate-spin" aria-hidden /> : null}
-                      {dirty ? `Save as version ${(latest?.version ?? 0) + 1}` : 'Saved'}
-                    </Button>
+                      Try again
+                    </button>
+                  </StatusNote>
+                ) : null}
+
+                {latest && shown.version !== latest.version ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-hairline bg-ivory py-2.5 pr-3 pl-4 text-sm text-ink">
+                    <span>
+                      You’re looking at version {shown.version}. The latest is version{' '}
+                      {latest.version}.
+                    </span>
+                    <span className="flex flex-wrap gap-2">
+                      <Button
+                        variant="quiet"
+                        size="sm"
+                        onClick={() => setSelected((s) => ({ ...s, [format]: undefined }))}
+                      >
+                        Back to the latest
+                      </Button>
+                      {!dirty ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={saving}
+                          onClick={() =>
+                            void save({ title: shown.title, body: shown.body }, shown, true)
+                          }
+                        >
+                          <RotateCcw aria-hidden /> Restore as version {latest.version + 1}
+                        </Button>
+                      ) : null}
+                    </span>
+                  </div>
+                ) : null}
+
+                <div
+                  onKeyDown={onEditorKey}
+                  className="overflow-hidden rounded-[18px] border border-hairline bg-ivory"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-4.5 sm:px-7">
+                    <p className="text-[0.8125rem] text-graphite">
+                      <strong className="font-semibold text-ink">Version {shown.version}</strong> ·{' '}
+                      {versionOrigin(shown)} · {formatDateTime(shown.createdAt)}
+                    </p>
+                    <CheckChip shown={shown} checked={checked} />
+                  </div>
+                  {spec.hasTitle ? (
+                    <div className="border-b border-hairline-soft px-5 pt-3.5 pb-3 sm:px-7">
+                      <Label
+                        htmlFor="draft-title"
+                        className="text-xs font-semibold tracking-[0.03em] text-slate uppercase"
+                      >
+                        Headline
+                      </Label>
+                      <Input
+                        id="draft-title"
+                        value={title}
+                        maxLength={300}
+                        onChange={(event) => change('title', event.target.value)}
+                        className="mt-1 h-auto rounded-none border-0 bg-transparent px-0 py-1 font-serif text-[1.75rem] leading-[1.1] font-medium tracking-[-0.015em] shadow-none focus-visible:ring-0 md:text-[2.125rem]"
+                      />
+                    </div>
+                  ) : null}
+                  <Label htmlFor="draft-body" className="sr-only">
+                    {spec.label} text
+                  </Label>
+                  <Textarea
+                    id="draft-body"
+                    value={body}
+                    onChange={(event) => change('body', event.target.value)}
+                    className={cn(
+                      'field-sizing-content max-w-[80ch] rounded-none border-0 bg-transparent px-5 py-5 font-serif text-[1.125rem] leading-[1.7] text-ink shadow-none focus-visible:ring-0 sm:px-7 md:text-[1.1875rem]',
+                      format === 'editorial_article' ? 'min-h-[32rem]' : 'min-h-[14rem]',
+                    )}
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline-soft bg-[#fafaf8] py-3 pr-4 pl-5 sm:pl-7">
+                    <p
+                      className={cn(
+                        'text-sm tabular-nums',
+                        measure.overLimit
+                          ? measure.uncertain
+                            ? 'font-medium text-amber'
+                            : 'font-medium text-oxide'
+                          : 'text-graphite',
+                      )}
+                      aria-live="polite"
+                    >
+                      {measure.summary}
+                      {measure.uncertain
+                        ? '. It has something X may count as a 23-character link. Check the count in X before posting.'
+                        : measure.overLimit
+                          ? '. Over the limit: shorten it before posting.'
+                          : measure.outsideGuidance
+                            ? '. Outside the usual length.'
+                            : format === 'x_post'
+                              ? ', counted as X counts them.'
+                              : ''}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {dirty ? (
+                        <Button variant="quiet" size="sm" onClick={discard} disabled={saving}>
+                          <Undo2 aria-hidden /> Discard changes
+                        </Button>
+                      ) : null}
+                      <Button variant="outline" size="sm" onClick={() => void copy()}>
+                        <Copy aria-hidden /> Copy text
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={!dirty || saving}
+                        onClick={() =>
+                          void save({ title, body, fromLatest: edit?.fromLatest }, shown)
+                        }
+                      >
+                        {saving ? <Loader2 className="animate-spin" aria-hidden /> : null}
+                        {dirty ? `Save as version ${(latest?.version ?? 0) + 1}` : 'Saved'}
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="surface-quiet space-y-3 px-5 py-5 sm:px-7">
-                <Label htmlFor="draft-instructions" className="text-sm font-semibold text-ink">
-                  Ask Omenai for another version
-                </Label>
-                <Textarea
-                  id="draft-instructions"
-                  value={instructions}
-                  maxLength={1_000}
-                  onChange={(event) => setInstructions(event.target.value)}
-                  placeholder={PLACEHOLDER[format]}
-                  className="min-h-20 bg-ivory"
-                />
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <label className="flex items-center gap-2 text-sm text-ink">
-                    <input
-                      type="checkbox"
-                      checked={revise}
-                      onChange={(event) => setRevise(event.target.checked)}
-                      className="size-4 accent-[var(--ochre)]"
-                    />
-                    Revise version {shown.version} (otherwise start fresh)
-                  </label>
-                  <Button
-                    variant="outline"
-                    disabled={Boolean(entry.activeTask) || requesting || dirty}
-                    onClick={() =>
-                      void request({ instructions, fromVersion: revise ? shown.version : null })
-                    }
-                  >
-                    {requesting ? (
-                      <Loader2 className="animate-spin" aria-hidden />
-                    ) : (
-                      <PenLine aria-hidden />
-                    )}
-                    Write a new version
-                  </Button>
-                </div>
-                <p className="meta">
-                  {dirty
-                    ? 'Save or discard your changes first.'
-                    : 'Your note guides emphasis, tone and length. Omenai is asked to keep to the evidence whatever the note says, so check the result.'}
-                </p>
-              </div>
-
-              {/* Below the editor on narrower screens; beside it on wide ones. */}
-              <div className="grid gap-3 xl:hidden">
-                <Disclosure
-                  variant="card"
-                  summary="Before you use it"
-                  hint="Checks and what’s still open"
-                >
-                  <ChecksPanel shown={shown} checked={checked} view={view} />
-                </Disclosure>
-                <Disclosure variant="card" summary={`Version history (${entry.versions.length})`}>
-                  <VersionHistory
-                    versions={entry.versions}
-                    shown={shown.version}
-                    onSelect={(v) => setSelected((s) => ({ ...s, [format]: v }))}
+                <div className="space-y-3 rounded-[18px] border border-hairline bg-ivory px-5 py-5 sm:px-7">
+                  <Label htmlFor="draft-instructions" className="text-sm font-semibold text-ink">
+                    Ask Omenai for another version
+                  </Label>
+                  <Textarea
+                    id="draft-instructions"
+                    value={instructions}
+                    maxLength={1_000}
+                    onChange={(event) => setInstructions(event.target.value)}
+                    placeholder={PLACEHOLDER[format]}
+                    className="min-h-20 bg-ivory"
                   />
-                </Disclosure>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm text-ink">
+                      <input
+                        type="checkbox"
+                        checked={revise}
+                        onChange={(event) => setRevise(event.target.checked)}
+                        className="size-4 accent-[var(--ink)]"
+                      />
+                      Revise version {shown.version} (otherwise start fresh)
+                    </label>
+                    <Button
+                      variant="outline"
+                      className="border-ink"
+                      disabled={Boolean(entry.activeTask) || requesting || dirty}
+                      onClick={() =>
+                        void request({ instructions, fromVersion: revise ? shown.version : null })
+                      }
+                    >
+                      {requesting ? (
+                        <Loader2 className="animate-spin" aria-hidden />
+                      ) : (
+                        <PenLine aria-hidden />
+                      )}
+                      Write a new version
+                    </Button>
+                  </div>
+                  <p className="meta">
+                    {dirty
+                      ? 'Save or discard your changes first.'
+                      : 'Your note guides emphasis, tone and length. Omenai is asked to keep to the evidence whatever the note says, so check the result.'}
+                  </p>
+                </div>
+
+                {/* Below the editor on narrower screens; beside it on wide ones. */}
+                <div className="grid gap-3 min-[87.5rem]:hidden">
+                  <Disclosure
+                    variant="card"
+                    summary="Before you use it"
+                    hint="Checks and what’s still open"
+                  >
+                    <ChecksPanel shown={shown} checked={checked} view={view} />
+                  </Disclosure>
+                  <Disclosure variant="card" summary={`Version history (${entry.versions.length})`}>
+                    <VersionHistory
+                      versions={entry.versions}
+                      shown={shown.version}
+                      onSelect={(v) => setSelected((s) => ({ ...s, [format]: v }))}
+                    />
+                  </Disclosure>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
 
-        {/* Checks and history beside the editor on wide screens. */}
+        {/* Checks and history beside the editor on wide screens, scrolling within the panel. */}
         {researched && shown ? (
-          <aside aria-label="Checks and history" className="hidden space-y-8 xl:block">
+          <aside
+            aria-label="Versions and checks"
+            className="hidden overflow-y-auto overscroll-contain border-l border-hairline bg-ivory px-5.5 pt-5 pb-8 min-[87.5rem]:block"
+          >
             <section>
-              <h2 className="mb-3 font-display text-[1.375rem] leading-tight text-ink">
-                Before you use it
-              </h2>
-              <ChecksPanel shown={shown} checked={checked} view={view} />
+              <h2 className="masthead text-xl tracking-[0.02em]">Version history</h2>
+              <div className="mt-2.5">
+                <VersionHistory
+                  versions={entry.versions}
+                  shown={shown.version}
+                  onSelect={(v) => setSelected((s) => ({ ...s, [format]: v }))}
+                />
+              </div>
             </section>
-            <section>
-              <h2 className="mb-2 font-display text-[1.375rem] leading-tight text-ink">
-                Version history
-              </h2>
-              <VersionHistory
-                versions={entry.versions}
-                shown={shown.version}
-                onSelect={(v) => setSelected((s) => ({ ...s, [format]: v }))}
-              />
+            <section className="mt-6.5 border-t-2 border-ink pt-4.5">
+              <h2 className="masthead mb-3 text-xl tracking-[0.02em]">Before you use it</h2>
+              <ChecksPanel shown={shown} checked={checked} view={view} />
             </section>
           </aside>
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Whether the text in the editor is the text that was source-checked, without colour: a filled
+ * dot when this version's own statements were checked as it was written, an empty one when they
+ * weren't (an edited or restored version shows its source version's checks, never as its own).
+ */
+function CheckChip({
+  shown,
+  checked,
+}: {
+  shown: DraftVersionDto;
+  checked: DraftVersionDto | null;
+}) {
+  const own = checked !== null && checked.version === shown.version && checked.claims.length > 0;
+  return (
+    <span className="inline-flex h-6 items-center gap-[7px] rounded-full border border-tag-line px-2.5 text-xs font-medium text-graphite">
+      <span
+        aria-hidden
+        className={cn(
+          'size-[7px] rounded-full border-[1.5px] border-graphite',
+          own && 'bg-graphite',
+        )}
+      />
+      {own ? 'Sources checked when written' : 'Text not checked'}
+    </span>
   );
 }
 
@@ -726,7 +736,7 @@ function StartCard({
       />
     );
   return (
-    <div className="surface px-6 py-8 sm:px-10 sm:py-10">
+    <div className="rounded-[18px] border border-hairline bg-ivory px-6 py-8 sm:px-10 sm:py-10">
       <p className="eyebrow">{limitText(format)}</p>
       <h2 className="display-md mt-2">{START_TITLE[format]}</h2>
       <p className="mt-3 max-w-[60ch] font-serif text-lg leading-relaxed text-graphite">
@@ -753,7 +763,7 @@ function StartCard({
         />
       </div>
       <div className="mt-5 flex flex-wrap items-center gap-4">
-        <Button onClick={onStart} disabled={busy}>
+        <Button variant="signal" onClick={onStart} disabled={busy}>
           {busy ? <Loader2 className="animate-spin" aria-hidden /> : <PenLine aria-hidden />}
           {busy ? 'Starting…' : 'Write the draft'}
         </Button>

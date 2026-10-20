@@ -14,6 +14,17 @@ import {
 export const NEWSROOM_TZ = 'America/Chicago';
 
 export const pillarLabel = (id: PillarId | null) => (id ? PILLARS[id].label : 'Unclassified');
+
+/** One word per subject, for the edition's subject index. */
+const PILLAR_SHORT: Record<PillarId, string> = {
+  art_creative_expression: 'Art',
+  fashion_design_objects: 'Design',
+  film_music_performance: 'Performance',
+  places_architecture_living: 'Places',
+  people_influence_institutions: 'People',
+  ideas_history_cultural_change: 'Ideas',
+};
+export const pillarShort = (id: PillarId) => PILLAR_SHORT[id];
 export const regionLabel = (id: RegionId) => REGIONS[id].label;
 export const tagLabel = (id: string) =>
   (CROSS_CUTTING_TAGS.labels as Record<string, string>)[id] ?? id;
@@ -34,6 +45,11 @@ const dateFormat = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
   month: 'short',
   year: 'numeric',
+  timeZone: NEWSROOM_TZ,
+});
+const dayMonthFormat = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
   timeZone: NEWSROOM_TZ,
 });
 const dateTimeFormat = new Intl.DateTimeFormat('en-GB', {
@@ -65,12 +81,30 @@ const longDateFormat = new Intl.DateTimeFormat('en-GB', {
 
 export const formatDate = (iso: string | null) =>
   iso ? dateFormat.format(new Date(iso)) : 'Undated';
+/** "19 Oct": a day in newsroom time, for compact lists. */
+export const formatDayMonth = (iso: string | null) =>
+  iso ? dayMonthFormat.format(new Date(iso)) : '—';
 export const formatDateTime = (iso: string | null) =>
   iso ? `${dateTimeFormat.format(new Date(iso))} ${zone(new Date(iso))}` : '—';
 export const formatLongDate = (iso: string | null) =>
   iso ? longDateFormat.format(new Date(iso)) : '—';
 export const formatTime = (iso: string | null) =>
   iso ? `${timeFormat.format(new Date(iso))} ${zone(new Date(iso))}` : '—';
+/**
+ * A date's day in newsroom time, as parts ("Sunday", "18", "October", "2026"), so lists can word
+ * it without the locale's punctuation.
+ */
+export function dayParts(date: Date): {
+  weekday: string;
+  day: string;
+  month: string;
+  year: string;
+} {
+  const parts = longDateFormat.formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return { weekday: part('weekday'), day: part('day'), month: part('month'), year: part('year') };
+}
 
 /** "2026-10-15" (a newsroom day) → its date at noon UTC, safe to format in Chicago time. */
 export const dayToDate = (day: string) => new Date(`${day}T12:00:00Z`);

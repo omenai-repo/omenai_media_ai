@@ -5,7 +5,11 @@ import { cn } from '@/lib/utils';
 
 import type { Tone } from './copy';
 
-/** The opening of every page: a quiet label, a display headline, an optional standfirst. */
+/**
+ * The opening of every page: an optional quiet label, then either the masthead face (narrow
+ * uppercase Archivo, for the newsroom's own rooms) or a Newsreader headline, and an optional
+ * standfirst. `aside` holds the page's own tools, aligned to the title's baseline.
+ */
 export function PageMasthead({
   eyebrow,
   title,
@@ -16,25 +20,27 @@ export function PageMasthead({
 }: {
   eyebrow?: ReactNode;
   title: ReactNode;
-  size?: 'xl' | 'lg' | 'md';
+  size?: 'masthead' | 'xl' | 'lg' | 'md';
   children?: ReactNode;
   aside?: ReactNode;
   className?: string;
 }) {
+  const titleClass = {
+    masthead: 'masthead text-[clamp(3.5rem,2rem+5.2vw,6.5rem)]',
+    xl: 'display-xl',
+    lg: 'display-lg',
+    md: 'display-md',
+  }[size];
   return (
-    <header className={cn('grid gap-6 pb-2 lg:grid-cols-12 lg:items-end', className)}>
-      <div className={aside ? 'lg:col-span-8' : 'lg:col-span-10'}>
-        {eyebrow ? <p className="eyebrow mb-4">{eyebrow}</p> : null}
-        <h1 className={size === 'xl' ? 'display-xl' : size === 'lg' ? 'display-lg' : 'display-md'}>
-          {title}
-        </h1>
-        {children ? <div className="standfirst mt-5 max-w-[60ch]">{children}</div> : null}
+    <header
+      className={cn('flex flex-wrap items-end justify-between gap-x-12 gap-y-5 pb-2', className)}
+    >
+      <div className="max-w-[60rem] min-w-0">
+        {eyebrow ? <p className="eyebrow mb-3">{eyebrow}</p> : null}
+        <h1 className={titleClass}>{title}</h1>
+        {children ? <div className="standfirst mt-4 max-w-[60ch]">{children}</div> : null}
       </div>
-      {aside ? (
-        <div className="flex flex-wrap items-center gap-3 lg:col-span-4 lg:justify-end">
-          {aside}
-        </div>
-      ) : null}
+      {aside ? <div className="flex flex-wrap items-center gap-2.5 pb-1">{aside}</div> : null}
     </header>
   );
 }
@@ -47,6 +53,7 @@ export function Section({
   className,
   id,
   aside,
+  heading = 'label',
 }: {
   title: string;
   description?: ReactNode;
@@ -54,13 +61,22 @@ export function Section({
   className?: string;
   id?: string;
   aside?: ReactNode;
+  /** `label`: masthead type, for operational rooms; `serif`: a Newsreader heading. */
+  heading?: 'label' | 'serif';
 }) {
   const headingId = id ?? `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <section aria-labelledby={headingId} className={className}>
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
         <div>
-          <h2 id={headingId} className="display-sm">
+          <h2
+            id={headingId}
+            className={
+              heading === 'label'
+                ? 'masthead text-[1.625rem] leading-[0.95]'
+                : 'font-serif text-[1.75rem] leading-tight font-medium sm:text-[1.875rem]'
+            }
+          >
             {title}
           </h2>
           {description ? <p className="meta mt-1 max-w-[62ch]">{description}</p> : null}
@@ -99,7 +115,7 @@ export function Prose({ children, className }: { children: ReactNode; className?
 
 export function PullQuote({ children, cite }: { children: ReactNode; cite?: string }) {
   return (
-    <figure className="border-l-2 border-ochre py-1 pl-5">
+    <figure className="border-l-2 border-ink py-1 pl-5">
       <blockquote className="pull-quote text-ink">
         <p>{children}</p>
       </blockquote>
@@ -136,18 +152,18 @@ export function Disclosure({
       open={defaultOpen}
       className={cn(
         'disclosure group',
-        variant === 'card' ? 'surface scroll-mt-28' : 'border-t border-hairline-soft',
+        variant === 'card' ? 'surface scroll-mt-28' : 'border-t border-hairline',
         className,
       )}
     >
       <summary
         className={cn(
           'flex cursor-pointer list-none items-center gap-3 rounded-md transition-colors [&::-webkit-details-marker]:hidden',
-          variant === 'card' ? 'px-5 py-4 hover:bg-bone/40 sm:px-6' : 'py-4 hover:text-ink',
+          variant === 'card' ? 'px-5 py-4 hover:bg-bone/60 sm:px-6' : 'py-4 hover:text-ink',
         )}
       >
         <ChevronRight
-          className="size-4 shrink-0 text-ochre transition-transform duration-200 group-open:rotate-90"
+          className="size-4 shrink-0 text-ink transition-transform duration-200 group-open:rotate-90"
           aria-hidden
         />
         <span className="font-medium text-ink">{summary}</span>
@@ -165,14 +181,18 @@ export function Disclosure({
   );
 }
 
+/*
+ * Colour only where it means something: a wash for a warning or a failure, a hairline for
+ * everything else. The icon carries the tone too, so colour is never the only signal.
+ */
 const TONE_STYLE: Record<Tone, { icon: typeof Info; wash: string; iconClass: string }> = {
-  done: { icon: CircleCheck, wash: 'bg-moss-wash/70', iconClass: 'text-moss' },
-  info: { icon: Info, wash: 'bg-ivory border border-hairline-soft', iconClass: 'text-graphite' },
-  attention: { icon: TriangleAlert, wash: 'bg-amber-wash/80', iconClass: 'text-amber' },
-  problem: { icon: CircleAlert, wash: 'bg-oxide-wash/80', iconClass: 'text-oxide' },
+  done: { icon: CircleCheck, wash: 'border border-hairline bg-ivory', iconClass: 'text-moss' },
+  info: { icon: Info, wash: 'border border-hairline bg-ivory', iconClass: 'text-graphite' },
+  attention: { icon: TriangleAlert, wash: 'bg-amber-soft', iconClass: 'text-amber' },
+  problem: { icon: CircleAlert, wash: 'bg-oxide-wash', iconClass: 'text-oxide' },
 };
 
-/** A short plain-language status on a tinted panel, with an icon (never colour alone). */
+/** A short plain-language status, with an icon (never colour alone). */
 export function StatusNote({
   tone,
   title,
@@ -189,7 +209,7 @@ export function StatusNote({
   const style = TONE_STYLE[tone];
   const Icon = style.icon;
   return (
-    <div role={role} className={cn('flex gap-3 rounded-lg px-4 py-3.5', style.wash, className)}>
+    <div role={role} className={cn('flex gap-3 rounded-[14px] px-4 py-3.5', style.wash, className)}>
       <Icon className={cn('mt-0.5 size-4 shrink-0', style.iconClass)} aria-hidden />
       <div className="min-w-0 text-[0.9375rem] leading-relaxed">
         <p className="font-medium text-ink">{title}</p>
@@ -223,7 +243,7 @@ export function Figure({
 }) {
   return (
     <div>
-      <p className="display-md tabular-nums">{value}</p>
+      <p className="masthead text-[2.75rem] leading-none tabular-nums">{value}</p>
       <p className="mt-1 text-sm text-ink">{label}</p>
       {note ? <p className="meta mt-0.5">{note}</p> : null}
     </div>
@@ -240,8 +260,8 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn('surface-quiet px-6 py-12 sm:px-10 sm:py-14', className)}>
-      <span aria-hidden className="mb-5 block h-px w-12 bg-ochre" />
+    <div className={cn('surface-quiet px-6 py-10 sm:px-10 sm:py-12', className)}>
+      <span aria-hidden className="mb-5 block h-0.5 w-12 bg-ink" />
       <h2 className="display-md max-w-[24ch]">{title}</h2>
       {children ? (
         <div className="mt-4 max-w-[60ch] font-serif text-lg leading-relaxed text-graphite">

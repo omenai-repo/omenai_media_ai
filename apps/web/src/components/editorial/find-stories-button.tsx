@@ -44,8 +44,11 @@ export function FindStoriesButton({ fixtures = false }: { fixtures?: boolean }) 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <Search aria-hidden /> Find today’s stories
+        <Button variant="signal" className="h-12 gap-3 pr-1.5 pl-[1.125rem] text-[0.9375rem]">
+          Find today’s stories
+          <span className="inline-flex size-[38px] items-center justify-center rounded-full bg-ink text-white">
+            <Search aria-hidden />
+          </span>
         </Button>
       </DialogTrigger>
       <DialogContent>
@@ -58,7 +61,7 @@ export function FindStoriesButton({ fixtures = false }: { fixtures?: boolean }) 
           </DialogDescription>
         </DialogHeader>
         {fixtures ? (
-          <p className="rounded-md bg-amber-wash/70 px-4 py-3 text-sm leading-relaxed text-ink">
+          <p className="rounded-xl bg-amber-soft px-4 py-3 text-sm leading-relaxed text-ink">
             Development fixtures: this search is scripted and runs inside the app. It doesn’t search
             the web or use AI, and costs nothing.
           </p>

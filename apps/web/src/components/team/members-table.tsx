@@ -6,8 +6,8 @@ import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/editorial/confirm-dialog';
 import { roleLabel } from '@/components/editorial/copy';
-import { StatusLabel } from '@/components/editorial/primitives';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 import { teamRequest } from './api';
 
@@ -94,32 +94,52 @@ export function MembersTable({
 
   return (
     <>
-      <ul className="surface divide-y divide-hairline-soft">
+      <ul className="divide-y divide-hairline-soft overflow-hidden rounded-[18px] border border-hairline">
         {members.map((member) => {
           const self = member.id === currentUserId;
           const active = member.status === 'active';
+          const who = member.name || member.email;
           return (
             <li
               key={member.id}
-              className="grid gap-x-6 gap-y-3 px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center"
+              className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-5.5"
             >
-              <div className="min-w-0">
-                <p className="text-ink">
-                  {member.name || member.email}
-                  {self ? <span className="meta"> · You</span> : null}
+              <span
+                aria-hidden
+                className={cn(
+                  'inline-flex size-10 flex-none items-center justify-center rounded-full text-[0.8125rem] font-semibold',
+                  self ? 'bg-ink text-white' : 'bg-[#edece7] text-ink',
+                  !active && 'opacity-60',
+                )}
+              >
+                {who
+                  .split(/[\s@.]+/)
+                  .filter(Boolean)
+                  .slice(0, who.includes('@') ? 1 : 2)
+                  .map((w) => w[0]!.toUpperCase())
+                  .join('')}
+              </span>
+              <div className="min-w-0 flex-[1_1_15rem]">
+                <p className="font-medium text-ink">
+                  {who}
+                  {self ? (
+                    <span className="text-[0.8125rem] font-normal text-slate"> · You</span>
+                  ) : null}
                 </p>
-                <p className="meta break-all">
+                <p className="meta mt-px break-all">
                   {member.email} · Joined {member.joined}
                 </p>
                 {!active ? (
-                  <p className="mt-1">
-                    <StatusLabel tone="attention">No access</StatusLabel>
+                  <p className="mt-1.5">
+                    <span className="inline-flex h-6 items-center rounded-full border border-tag-line px-2.5 text-xs font-medium text-graphite">
+                      No access
+                    </span>
                   </p>
                 ) : null}
               </div>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 {self ? (
-                  <span className="text-sm text-ink">{roleLabel(member.role)}</span>
+                  <span className="text-sm font-medium text-ink">{roleLabel(member.role)}</span>
                 ) : (
                   <>
                     <label className="sr-only" htmlFor={`role-${member.id}`}>
@@ -136,7 +156,7 @@ export function MembersTable({
                           role: event.target.value === 'owner' ? 'owner' : 'editor',
                         })
                       }
-                      className="h-9 rounded-md border border-input bg-ivory px-2.5 text-sm text-ink transition-colors hover:border-rule-strong disabled:opacity-60"
+                      className="h-10 rounded-[10px] border border-input bg-ivory px-2.5 text-sm text-ink transition-colors hover:border-ink disabled:opacity-60"
                     >
                       <option value="editor">Editor</option>
                       <option value="owner">Owner</option>

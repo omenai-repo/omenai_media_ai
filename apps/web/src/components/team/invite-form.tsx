@@ -82,10 +82,7 @@ export function InviteForm({ emailConfigured }: { emailConfigured: boolean }) {
 
   return (
     <div>
-      <form
-        onSubmit={(event) => void handleSubmit(event)}
-        className="grid gap-4 sm:grid-cols-[1fr_11rem_auto] sm:items-end"
-      >
+      <form onSubmit={(event) => void handleSubmit(event)} className="grid gap-3.5">
         <div className="flex flex-col gap-2">
           <Label htmlFor="invite-email">Their email address</Label>
           <Input
@@ -106,19 +103,19 @@ export function InviteForm({ emailConfigured }: { emailConfigured: boolean }) {
             id="invite-role"
             name="role"
             defaultValue="editor"
-            className="h-11 rounded-md border border-input bg-ivory px-3 text-sm text-ink"
+            className="h-11.5 rounded-xl border border-input bg-ivory px-3 text-[0.9375rem] text-ink transition-colors hover:border-ink"
           >
             <option value="editor">Editor</option>
             <option value="owner">Owner</option>
           </select>
         </div>
-        <Button type="submit" size="lg" disabled={pending}>
+        <Button type="submit" size="lg" className="justify-self-start" disabled={pending}>
           {pending ? <Loader2 className="animate-spin" aria-hidden /> : <Send aria-hidden />}
           Send invitation
         </Button>
       </form>
       {error ? (
-        <p role="alert" className="mt-3 rounded-md bg-oxide-wash/80 px-3 py-2 text-sm text-ink">
+        <p role="alert" className="mt-3 rounded-xl bg-oxide-wash px-3 py-2 text-sm text-ink">
           {error}
         </p>
       ) : null}
@@ -129,7 +126,7 @@ export function InviteForm({ emailConfigured }: { emailConfigured: boolean }) {
       ) : null}
 
       {result ? (
-        <div className="mt-6 rise-in rounded-lg bg-moss-wash/60 p-5" role="status">
+        <div className="mt-6 rise-in rounded-[14px] border border-hairline p-5" role="status">
           <p className="font-medium text-ink">
             {result.emailed
               ? `We’ve emailed ${result.invitation.email} an invitation.`
