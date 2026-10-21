@@ -20,7 +20,7 @@ let auth: ReturnType<typeof createTestAuth>;
 vi.mock('next/server', () => ({ connection: () => Promise.resolve() }));
 // A real Better Auth instance against the test database (without the Next.js cookie plugin,
 // which needs a live request scope).
-vi.mock('@/lib/auth', () => ({ getAuth: () => auth }));
+vi.mock('@/lib/auth', () => ({ getReadyAuth: () => Promise.resolve(auth) }));
 
 const { POST } = await import('./route');
 

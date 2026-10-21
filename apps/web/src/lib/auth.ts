@@ -1,5 +1,6 @@
 import {
   createAuthOptions,
+  ensureDatabaseConnection,
   getDatabase,
   getMongoClient,
   passwordResetEmail,
@@ -35,4 +36,14 @@ let auth: ReturnType<typeof createAuth> | undefined;
 export function getAuth(): ReturnType<typeof createAuth> {
   auth ??= createAuth();
   return auth;
+}
+
+/**
+ * The auth instance, with the shared database client checked first. Better Auth's adapter uses
+ * the client without connecting it, so after one failed connect it would fail every request on
+ * this instance with "Topology is closed" (production, 2026-10-21); this repairs that.
+ */
+export async function getReadyAuth(): Promise<ReturnType<typeof createAuth>> {
+  await ensureDatabaseConnection();
+  return getAuth();
 }

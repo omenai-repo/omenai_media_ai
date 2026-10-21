@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 const getSession = vi.fn();
 
 vi.mock('next/headers', () => ({ headers: () => Promise.resolve(new Headers()) }));
-vi.mock('./auth', () => ({ getAuth: () => ({ api: { getSession } }) }));
+vi.mock('./auth', () => ({ getReadyAuth: () => Promise.resolve({ api: { getSession } }) }));
 
 const { requireOwner, requireUser } = await import('./session');
 

@@ -5,6 +5,7 @@ export * from './config/env.js';
 export * from './config/runtime.js';
 export {
   closeDb,
+  ensureDatabaseConnection,
   getConnection,
   getDatabase,
   getMongoClient,

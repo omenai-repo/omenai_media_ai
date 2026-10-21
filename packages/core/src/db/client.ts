@@ -56,8 +56,23 @@ export function getDatabase(): Db {
 }
 
 /**
+ * Makes sure the shared client can run operations, for every user of it, including Better Auth's
+ * adapter, which uses it without connecting first. Free when connected.
+ *
+ * It matters after a failed connect. The driver (7.x) closes the topology it was building but
+ * leaves it on the client, and every later operation reuses it and fails at once with "Topology
+ * is closed"; only an explicit `connect()` replaces it. In production (2026-10-21) one failed
+ * connect on a warm serverless instance broke every request it served, sign-in included, until
+ * the instance was recycled.
+ */
+export async function ensureDatabaseConnection(): Promise<void> {
+  await getState().client.connect();
+}
+
+/**
  * The Mongoose connection bound to the shared client. Mongoose's `setClient()` requires a
- * connected client, so the first call connects; later calls reuse the same promise.
+ * connected client, so the first call connects (which also repairs a client a failed connect
+ * left closed, see `ensureDatabaseConnection`); later calls reuse the same promise.
  */
 export function getConnection(): Promise<Connection> {
   const state = getState();

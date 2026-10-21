@@ -3,7 +3,7 @@ import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@repo/shared';
 import * as z from 'zod';
 
 import { apiHandler, readJson } from '@/lib/api';
-import { getAuth } from '@/lib/auth';
+import { getReadyAuth } from '@/lib/auth';
 
 const bodySchema = z.object({
   token: z.string().min(16).max(256),
@@ -38,7 +38,9 @@ export const POST = apiHandler(async (request) => {
   }
 
   // The nextCookies plugin copies the new session cookie onto this response.
-  await getAuth().api.signUpEmail({
+  await (
+    await getReadyAuth()
+  ).api.signUpEmail({
     body: { email: invitation.email, password, name },
     headers: new Headers({ cookie: `${INVITE_COOKIE_NAME}=${token}` }),
   });

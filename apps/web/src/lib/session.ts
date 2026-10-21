@@ -3,7 +3,7 @@ import { findUserById, ForbiddenError, UnauthenticatedError, type AppUser } from
 import { headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 
-import { getAuth } from './auth';
+import { getReadyAuth } from './auth';
 
 /**
  * Resolves the signed-in user from the Better Auth session *and* our user record, so role
@@ -13,7 +13,7 @@ export async function getCurrentUser(): Promise<AppUser | null> {
   // Read the request first: during prerendering this is where rendering stops, so the database
   // and auth configuration are never touched at build time.
   const requestHeaders = await headers();
-  const session = await getAuth().api.getSession({ headers: requestHeaders });
+  const session = await (await getReadyAuth()).api.getSession({ headers: requestHeaders });
   if (!session) return null;
   const user = await findUserById(session.user.id);
   return user?.status === 'active' ? user : null;
