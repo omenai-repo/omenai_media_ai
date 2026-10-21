@@ -12,6 +12,7 @@ import {
   LlmError,
   type AttemptLog,
   type Effort,
+  type LlmMessage,
   type LlmProvider,
   type LlmUsage,
   type ProviderRequest,
@@ -80,6 +81,43 @@ const REFUSAL_FALLBACK_BETA = 'server-side-fallback-2026-07-01';
  */
 const THINKING_HEADROOM: Record<Effort, number> = { low: 1_024, medium: 4_096, high: 8_192 };
 
+/** Anthropic allows four cache breakpoints per request; the system prompt always uses one. */
+const MAX_MESSAGE_BREAKPOINTS = 3;
+
+/**
+ * A message with a cacheable prefix becomes two text blocks, the first marked for the prompt
+ * cache. The text is unchanged: the blocks join back into the same content. Only the last few
+ * marked messages keep their marker, within Anthropic's breakpoint limit.
+ */
+export function toAnthropicMessages(
+  messages: ReadonlyArray<LlmMessage>,
+): MessageCreateParamsBase['messages'] {
+  const marked = messages
+    .map((m, index) => ({ m, index }))
+    .filter(({ m }) => {
+      const n = m.cacheablePrefixLength ?? 0;
+      return n > 0 && n <= m.content.length;
+    })
+    .slice(-MAX_MESSAGE_BREAKPOINTS)
+    .map(({ index }) => index);
+  return messages.map((m, index) => {
+    if (!marked.includes(index)) return { role: m.role, content: m.content };
+    const cut = m.cacheablePrefixLength!;
+    const rest = m.content.slice(cut);
+    return {
+      role: m.role,
+      content: [
+        {
+          type: 'text' as const,
+          text: m.content.slice(0, cut),
+          cache_control: { type: 'ephemeral' as const },
+        },
+        ...(rest ? [{ type: 'text' as const, text: rest }] : []),
+      ],
+    };
+  });
+}
+
 /** The SDK's own default; callers pass a tighter policy where they need one (the chat does). */
 const DEFAULT_ATTEMPTS = 3;
 
@@ -108,6 +146,9 @@ function usageOf(usage: BetaUsage | BetaMessageDeltaUsage | null | undefined): L
     inputTokens: usage?.input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
     cachedInputTokens: usage?.cache_read_input_tokens ?? 0,
+    // Not part of input_tokens: Anthropic reports uncached, cache-read and cache-written input
+    // separately, and bills writes above the input rate.
+    cacheWriteTokens: usage?.cache_creation_input_tokens ?? 0,
     reasoningTokens: usage?.output_tokens_details?.thinking_tokens ?? 0,
   };
 }
@@ -183,7 +224,7 @@ export function createAnthropicProvider(options: {
       max_tokens: request.maxOutputTokens + THINKING_HEADROOM[request.effort],
       // The system prompt is identical across calls of an operation, so cache it.
       system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
-      messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: toAnthropicMessages(request.messages),
       output_config: {
         effort: request.effort,
         ...(request.jsonSchema
@@ -268,6 +309,8 @@ export function createAnthropicProvider(options: {
               inputTokens: event.usage.input_tokens ?? usage.inputTokens,
               outputTokens: delta.outputTokens,
               cachedInputTokens: event.usage.cache_read_input_tokens ?? usage.cachedInputTokens,
+              cacheWriteTokens:
+                event.usage.cache_creation_input_tokens ?? usage.cacheWriteTokens ?? 0,
               reasoningTokens: delta.reasoningTokens || usage.reasoningTokens,
             };
           } else if (

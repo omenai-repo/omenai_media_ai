@@ -7,12 +7,15 @@ import type { UsageRowDto } from '../newsroom/dto.js';
  */
 export const PRICE_TABLE = {
   verifiedOn: '2026-10-16',
-  /** USD per million tokens. Source: Anthropic list prices (Claude API reference, cached 2026-10-06). */
+  /**
+   * USD per million tokens. Source: Anthropic list prices (Claude API reference, cached
+   * 2026-10-06). Cache writes are the 5-minute TTL the adapter uses: 1.25× the input price.
+   */
   anthropic: {
-    'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheRead: 0.01 },
-    'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2 },
-    'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2 },
-  } as Record<string, { input: number; output: number; cacheRead: number }>,
+    'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+    'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+    'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  } as Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>,
   /**
    * USD per million tokens, paid tier; thinking tokens are billed as output. Source:
    * ai.google.dev/gemini-api/docs/pricing, checked 2026-10-16 (3.8 Flash at its price through
@@ -39,7 +42,9 @@ export interface CostEstimate {
 
 /**
  * Estimated cost of one usage row. Anthropic output tokens already include thinking tokens, so
- * reasoning is not added again; cache writes aren't recorded, so Anthropic estimates run slightly low.
+ * reasoning is not added again. Anthropic's three input counts are separate (uncached, read from
+ * the cache, written to it) and each has its own rate; rows before 2026-10-21 have no writes
+ * recorded, so their estimates run slightly low.
  */
 export function estimateRowCost(row: UsageRowDto): CostEstimate {
   if (row.provider === 'tavily' && row.unreportedCalls > 0) {
@@ -79,7 +84,8 @@ export function estimateRowCost(row: UsageRowDto): CostEstimate {
       const usd =
         (row.inputTokens * price.input +
           row.outputTokens * price.output +
-          row.cachedInputTokens * price.cacheRead) /
+          row.cachedInputTokens * price.cacheRead +
+          (row.cacheWriteTokens ?? 0) * price.cacheWrite) /
         1_000_000;
       return { usd, basis: 'list_price', note: `Anthropic list price for ${row.model}.` };
     }

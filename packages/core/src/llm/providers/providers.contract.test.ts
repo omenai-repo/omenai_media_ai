@@ -8,7 +8,7 @@ import * as z from 'zod';
 
 import { toNeutralJsonSchema } from '../json-schema.js';
 import { LlmError, type ProviderRequest } from '../types.js';
-import { createAnthropicProvider } from './anthropic.js';
+import { createAnthropicProvider, toAnthropicMessages } from './anthropic.js';
 import { createGeminiProvider } from './gemini.js';
 
 interface Captured {
@@ -110,6 +110,19 @@ describe('Gemini adapter', () => {
     });
   });
 
+  it('sends a message with a cacheable opening unchanged (Gemini caches implicitly)', async () => {
+    const captured = stubFetch(200, okPayload);
+    await createGeminiProvider({ apiKey: 'k' }).generate({
+      ...request('gemini-3.8-flash'),
+      messages: [
+        { role: 'user', content: 'STORY AND BRIEFS\n\nQUESTION', cacheablePrefixLength: 18 },
+      ],
+    });
+    expect(captured[0]!.body.contents).toEqual([
+      { role: 'user', parts: [{ text: 'STORY AND BRIEFS\n\nQUESTION' }] },
+    ]);
+  });
+
   it('reports MAX_TOKENS and safety finishes', async () => {
     stubFetch(200, {
       ...okPayload,
@@ -189,7 +202,7 @@ describe('Anthropic adapter', () => {
       input_tokens: 200,
       output_tokens: 40,
       cache_read_input_tokens: 150,
-      cache_creation_input_tokens: 0,
+      cache_creation_input_tokens: 30,
       output_tokens_details: { thinking_tokens: 25 },
     },
     ...overrides,
@@ -222,7 +235,13 @@ describe('Anthropic adapter', () => {
       text: '{"pillar":"art","score":4}',
       model: 'claude-sonnet-5-5',
       stopReason: 'complete',
-      usage: { inputTokens: 200, outputTokens: 40, cachedInputTokens: 150, reasoningTokens: 25 },
+      usage: {
+        inputTokens: 200,
+        outputTokens: 40,
+        cachedInputTokens: 150,
+        cacheWriteTokens: 30,
+        reasoningTokens: 25,
+      },
       attempts: { attempts: 1, retryStatuses: [] },
     });
   });
@@ -237,6 +256,48 @@ describe('Anthropic adapter', () => {
       effort,
     });
     expect(captured[0]!.body.max_tokens).toBe(500 + headroom);
+  });
+
+  it('sends a cacheable opening as its own cached block, with the text unchanged', async () => {
+    const captured = stubFetch(200, message());
+    await createAnthropicProvider({ apiKey: 'k', maxRetries: 0 }).generate({
+      ...request('claude-sonnet-5-5'),
+      messages: [
+        { role: 'user', content: 'STORY AND BRIEFS\n\nQUESTION', cacheablePrefixLength: 18 },
+      ],
+    });
+    expect(captured[0]!.body.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'STORY AND BRIEFS\n\n', cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: 'QUESTION' },
+        ],
+      },
+    ]);
+  });
+
+  it('ignores a cacheable length outside the text, and caps message breakpoints at three', () => {
+    const plain = { role: 'user' as const, content: 'abc' };
+    expect(toAnthropicMessages([{ ...plain, cacheablePrefixLength: 0 }])).toEqual([plain]);
+    expect(toAnthropicMessages([{ ...plain, cacheablePrefixLength: 9 }])).toEqual([plain]);
+    expect(toAnthropicMessages([{ ...plain, cacheablePrefixLength: 3 }])).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'abc', cache_control: { type: 'ephemeral' } }],
+      },
+    ]);
+    const many = toAnthropicMessages(
+      Array.from({ length: 5 }, () => ({ ...plain, cacheablePrefixLength: 1 })),
+    );
+    // With the system prompt's, four in all: the most recent three messages keep theirs.
+    expect(many.map((m) => typeof m.content !== 'string')).toEqual([
+      false,
+      false,
+      true,
+      true,
+      true,
+    ]);
   });
 
   it('does not request a refusal fallback for Haiku, and sends no schema for text calls', async () => {
@@ -377,7 +438,12 @@ describe('Anthropic adapter, streamed', () => {
       content: [],
       stop_reason: null,
       stop_sequence: null,
-      usage: { input_tokens: 200, output_tokens: 1, cache_read_input_tokens: 150 },
+      usage: {
+        input_tokens: 200,
+        output_tokens: 1,
+        cache_read_input_tokens: 150,
+        cache_creation_input_tokens: 30,
+      },
     },
   };
   const events = [
@@ -430,7 +496,13 @@ describe('Anthropic adapter, streamed', () => {
       text: '{"pillar":"art","score":4}',
       model: 'claude-sonnet-5-5',
       stopReason: 'complete',
-      usage: { inputTokens: 200, outputTokens: 40, cachedInputTokens: 150, reasoningTokens: 25 },
+      usage: {
+        inputTokens: 200,
+        outputTokens: 40,
+        cachedInputTokens: 150,
+        cacheWriteTokens: 30,
+        reasoningTokens: 25,
+      },
       attempts: { attempts: 1, retryStatuses: [] },
     });
   });

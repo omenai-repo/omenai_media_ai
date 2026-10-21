@@ -7,6 +7,9 @@
  *   1    Real Anthropic requests (needs approval): 3 expected, at most 6 HTTP requests in all,
  *        retries and repair rounds included. A guard below the SDK refuses a seventh request
  *        before it is sent, and refuses any request to the Gemini API outright.
+ *   cache Only the prompt-cache check: two chat questions on the same story, at most 2 requests.
+ *        The second must read the story and its briefs from the cache, not just the system
+ *        prompt (ADR-043).
  *
  *   ANTHROPIC_LIVE_TESTS=1 ANTHROPIC_LIVE_KEY_FILE=/path/to/env-file ANTHROPIC_LIVE_OUT=out.json \
  *     node node_modules/vitest/vitest.mjs run src/llm/anthropic.live.test.ts --silent=false
@@ -38,6 +41,7 @@ import { startTestDatabase, type TestDatabase } from '../testing/index.js';
 import { createFixtureResearchLlm } from '../testing/scenarios/executor.js';
 import { fixtureResearchSearch, researchResultsFor } from '../testing/scenarios/research-script.js';
 import { seedFixtureNewsroom } from '../testing/seed.js';
+import { CHAT_SYSTEM_PROMPT } from '../research/prompts.js';
 import { getLlmClient, resetLlmClientForTesting, type LlmClient } from './client.js';
 import { createGeminiProvider } from './providers/gemini.js';
 
@@ -47,7 +51,8 @@ vi.mock('./providers/gemini.js', async (importOriginal) => {
 });
 
 const mode = process.env.ANTHROPIC_LIVE_TESTS;
-const MAX_REQUESTS = 6;
+const live = mode === '1' || mode === 'cache';
+const MAX_REQUESTS = mode === 'cache' ? 2 : 6;
 const INSTRUCTION = 'Use a warm, friendly tone and write exactly three distinct paragraphs.';
 
 /** HTTP requests seen below the SDK: every attempt, retry and repair round. */
@@ -88,16 +93,29 @@ function anthropicKey(): string {
   return key;
 }
 
-/** Records what each call returned and how many pieces it streamed. */
-function observed(
-  inner: LlmClient,
-  calls: Array<{ operation: string; data: unknown; pieces: number }>,
-) {
+interface ObservedCall {
+  operation: string;
+  data: unknown;
+  pieces: number;
+  /** The first message's length, and how much of it was marked cacheable. */
+  chars: number;
+  prefixChars: number;
+}
+
+const sizes = (request: {
+  messages: Array<{ content: string; cacheablePrefixLength?: number }>;
+}) => ({
+  chars: request.messages[0]?.content.length ?? 0,
+  prefixChars: request.messages[0]?.cacheablePrefixLength ?? 0,
+});
+
+/** Records what each call returned, how many pieces it streamed and what it was sent. */
+function observed(inner: LlmClient, calls: ObservedCall[]) {
   return {
     ...inner,
     generateObject: async (request) => {
       const result = await inner.generateObject(request);
-      calls.push({ operation: request.operation, data: result.data, pieces: 0 });
+      calls.push({ operation: request.operation, data: result.data, pieces: 0, ...sizes(request) });
       return result;
     },
     streamObject: async (request) => {
@@ -109,7 +127,7 @@ function observed(
           request.onText?.(text);
         },
       });
-      calls.push({ operation: request.operation, data: result.data, pieces });
+      calls.push({ operation: request.operation, data: result.data, pieces, ...sizes(request) });
       return result;
     },
   } satisfies LlmClient;
@@ -121,11 +139,11 @@ const collapse = (text: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-describe.skipIf(mode !== '1' && mode !== 'dry')('live Anthropic check (bounded)', () => {
+describe.skipIf(!live && mode !== 'dry')('live Anthropic check (bounded)', () => {
   let db: TestDatabase;
   let storyId: string;
   let llm: LlmClient;
-  const calls: Array<{ operation: string; data: unknown; pieces: number }> = [];
+  const calls: ObservedCall[] = [];
 
   beforeAll(async () => {
     db = await startTestDatabase();
@@ -144,7 +162,7 @@ describe.skipIf(mode !== '1' && mode !== 'dry')('live Anthropic check (bounded)'
       },
     });
 
-    if (mode === '1') {
+    if (live) {
       guardFetch();
       // Production's resolution: Anthropic selected, Gemini settings still present and ignored.
       Object.assign(process.env, {
@@ -180,6 +198,7 @@ describe.skipIf(mode !== '1' && mode !== 'dry')('live Anthropic check (bounded)'
           errorKind: u.errorKind,
           input: u.inputTokens,
           cached: u.cachedInputTokens,
+          cacheWrite: u.cacheWriteTokens,
           output: u.outputTokens,
           reasoning: u.reasoningTokens,
           attempts: u.attempts,
@@ -196,90 +215,158 @@ describe.skipIf(mode !== '1' && mode !== 'dry')('live Anthropic check (bounded)'
     await db?.stop();
   });
 
-  it('returns a valid structured classification on the triage tier', async () => {
-    const schema = z.object({
-      pillar: z.enum(['art_creative_expression', 'ideas_history_cultural_change', 'other']),
-      confidence: z.enum(['low', 'medium', 'high']),
-      reason: z.string().min(10),
-    });
-    const ask = () =>
-      llm.generateObject({
-        operation: 'live.classify',
-        tier: 'triage',
-        system: 'Classify the story into one Omenai pillar. Answer in JSON.',
-        messages: [
-          {
-            role: 'user',
-            content:
-              'Zeitz MOCAA opens the first major retrospective of the Ghanaian sculptor Kwame Asante.',
-          },
-        ],
-        maxOutputTokens: 300,
-        schema,
-        retry: { attempts: 1, initialDelayMs: 1_000, maxDelayMs: 1_000 },
+  it.skipIf(mode === 'cache')(
+    'returns a valid structured classification on the triage tier',
+    async () => {
+      const schema = z.object({
+        pillar: z.enum(['art_creative_expression', 'ideas_history_cultural_change', 'other']),
+        confidence: z.enum(['low', 'medium', 'high']),
+        reason: z.string().min(10),
       });
-    if (mode !== '1') return;
-    const result = await ask();
-    console.info(`[live anthropic] classify: ${JSON.stringify(result.data)} model=${result.model}`);
-    expect(result.provider).toBe('anthropic');
-    expect(result.model).toMatch(/^claude-haiku-5-5/);
-    expect(schema.safeParse(result.data).success).toBe(true);
-  }, 120_000);
+      const ask = () =>
+        llm.generateObject({
+          operation: 'live.classify',
+          tier: 'triage',
+          system: 'Classify the story into one Omenai pillar. Answer in JSON.',
+          messages: [
+            {
+              role: 'user',
+              content:
+                'Zeitz MOCAA opens the first major retrospective of the Ghanaian sculptor Kwame Asante.',
+            },
+          ],
+          maxOutputTokens: 300,
+          schema,
+          retry: { attempts: 1, initialDelayMs: 1_000, maxDelayMs: 1_000 },
+        });
+      if (mode !== '1') return;
+      const result = await ask();
+      console.info(
+        `[live anthropic] classify: ${JSON.stringify(result.data)} model=${result.model}`,
+      );
+      expect(result.provider).toBe('anthropic');
+      expect(result.model).toMatch(/^claude-haiku-5-5/);
+      expect(schema.safeParse(result.data).success).toBe(true);
+    },
+    120_000,
+  );
 
-  it('answers from the supplied research, with citations checked against stored sources', async () => {
-    const question = 'What have critics said about Kwame Asante so far?';
-    const { taskKey } = await postChatMessage({ storyId, userId: 'live-check', content: question });
-    const events: string[] = [];
-    await streamChatReply({
-      taskKey,
-      deps: { llm, now: () => new Date() },
-      onEvent: (event) => events.push(event.type),
-    });
-    const view = await getResearchView(storyId);
-    const reply = view.messages.find((m) => m.role === 'assistant')!;
-    const { SourceArticle } = await getModels();
-    const known = new Set(
-      (await SourceArticle.find({}, { _id: 1 }).lean()).map((a) => String(a._id)),
-    );
-    console.info(
-      `[live anthropic] chat: assessment=${reply.assessment} scope=${reply.scope} streamedTextEvents=${events.filter((e) => e === 'text').length} claims=${JSON.stringify(
-        (reply.claims ?? []).map((c) => ({ text: c.text, status: c.citationStatus })),
-      )}\n${reply.content}`,
-    );
-    expect(events).toContain('done');
-    expect(reply.content.length).toBeGreaterThan(0);
-    // Every cited source is one we stored; nothing cited comes from model text.
-    for (const claim of reply.claims ?? [])
-      for (const id of claim.sourceIds) expect(known.has(id)).toBe(true);
-    for (const citation of reply.citations) expect(known.has(citation.sourceId)).toBe(true);
-    if (mode === '1') expect(calls.at(-1)?.pieces).toBeGreaterThan(1);
-  }, 180_000);
+  it.skipIf(mode === 'cache')(
+    'answers from the supplied research, with citations checked against stored sources',
+    async () => {
+      const question = 'What have critics said about Kwame Asante so far?';
+      const { taskKey } = await postChatMessage({
+        storyId,
+        userId: 'live-check',
+        content: question,
+      });
+      const events: string[] = [];
+      await streamChatReply({
+        taskKey,
+        deps: { llm, now: () => new Date() },
+        onEvent: (event) => events.push(event.type),
+      });
+      const view = await getResearchView(storyId);
+      const reply = view.messages.find((m) => m.role === 'assistant')!;
+      const { SourceArticle } = await getModels();
+      const known = new Set(
+        (await SourceArticle.find({}, { _id: 1 }).lean()).map((a) => String(a._id)),
+      );
+      console.info(
+        `[live anthropic] chat: assessment=${reply.assessment} scope=${reply.scope} streamedTextEvents=${events.filter((e) => e === 'text').length} claims=${JSON.stringify(
+          (reply.claims ?? []).map((c) => ({ text: c.text, status: c.citationStatus })),
+        )}\n${reply.content}`,
+      );
+      expect(events).toContain('done');
+      expect(reply.content.length).toBeGreaterThan(0);
+      // Every cited source is one we stored; nothing cited comes from model text.
+      for (const claim of reply.claims ?? [])
+        for (const id of claim.sourceIds) expect(known.has(id)).toBe(true);
+      for (const citation of reply.citations) expect(known.has(citation.sourceId)).toBe(true);
+      if (mode === '1') expect(calls.at(-1)?.pieces).toBeGreaterThan(1);
+    },
+    180_000,
+  );
 
-  it('writes a draft that follows the editor’s instruction and saves what the model returned', async () => {
-    const { taskKey } = await requestDraft({
-      storyId,
-      userId: 'live-check',
-      format: 'newsletter_item',
-      instructions: INSTRUCTION,
-    });
-    await runDraftGeneration({ taskKey, deps: { llm, now: () => new Date() } });
-    const version = (await getDraftsView(storyId)).formats.newsletter_item.versions[0]!;
-    const generated = calls.filter((c) => c.operation.startsWith('draft.')).at(-1)!;
-    const { DraftVersion } = await getModels();
-    const saved = (await DraftVersion.findOne({ taskId: taskKey }, { model: 1 }).lean())!;
-    const paragraphs = version.body.split(/\n\s*\n/).filter((p) => p.trim());
-    console.info(
-      `[live anthropic] draft: paragraphs=${paragraphs.length} streamedPieces=${generated.pieces} shortened=${version.shortened} model=${saved.model}\n${version.title}\n\n${version.body}`,
-    );
-    expect(version.instructions).toBe(INSTRUCTION);
-    // The saved text is the model's text, minus source labels and spacing.
-    expect(collapse(version.body)).toBe(collapse((generated.data as { body: string }).body));
-    if (mode !== '1') return;
-    expect(saved.model).toMatch(/^claude-sonnet-5-5/);
-    expect(generated.pieces).toBeGreaterThan(1);
-    expect(paragraphs).toHaveLength(3);
-    expect(vi.mocked(createGeminiProvider)).not.toHaveBeenCalled();
-    expect(requests.every((r) => r.host === 'api.anthropic.com')).toBe(true);
-    expect(requests.length).toBeLessThanOrEqual(MAX_REQUESTS);
-  }, 240_000);
+  it.skipIf(mode === 'cache')(
+    'writes a draft that follows the editor’s instruction and saves what the model returned',
+    async () => {
+      const { taskKey } = await requestDraft({
+        storyId,
+        userId: 'live-check',
+        format: 'newsletter_item',
+        instructions: INSTRUCTION,
+      });
+      await runDraftGeneration({ taskKey, deps: { llm, now: () => new Date() } });
+      const version = (await getDraftsView(storyId)).formats.newsletter_item.versions[0]!;
+      const generated = calls.filter((c) => c.operation.startsWith('draft.')).at(-1)!;
+      const { DraftVersion } = await getModels();
+      const saved = (await DraftVersion.findOne({ taskId: taskKey }, { model: 1 }).lean())!;
+      const paragraphs = version.body.split(/\n\s*\n/).filter((p) => p.trim());
+      console.info(
+        `[live anthropic] draft: paragraphs=${paragraphs.length} streamedPieces=${generated.pieces} shortened=${version.shortened} model=${saved.model}\n${version.title}\n\n${version.body}`,
+      );
+      expect(version.instructions).toBe(INSTRUCTION);
+      // The saved text is the model's text, minus source labels and spacing.
+      expect(collapse(version.body)).toBe(collapse((generated.data as { body: string }).body));
+      if (mode !== '1') return;
+      expect(saved.model).toMatch(/^claude-sonnet-5-5/);
+      expect(generated.pieces).toBeGreaterThan(1);
+      expect(paragraphs).toHaveLength(3);
+      expect(vi.mocked(createGeminiProvider)).not.toHaveBeenCalled();
+      expect(requests.every((r) => r.host === 'api.anthropic.com')).toBe(true);
+      expect(requests.length).toBeLessThanOrEqual(MAX_REQUESTS);
+    },
+    240_000,
+  );
+  it.skipIf(mode !== 'cache' && mode !== 'dry')(
+    'reads the story and its briefs from the prompt cache on a follow-up question',
+    async () => {
+      const { Task, AiUsage } = await getModels();
+      for (const content of [
+        'What have critics said about Kwame Asante so far?',
+        'Where is the retrospective being held?',
+      ]) {
+        const { taskKey } = await postChatMessage({ storyId, userId: 'live-check', content });
+        await streamChatReply({ taskKey, deps: { llm, now: () => new Date() } });
+        // Research a lowered answer starts is not run here (no search); release the story.
+        await Task.updateMany(
+          { kind: 'research', activeLock: { $exists: true } },
+          { $set: { status: 'skipped' }, $unset: { activeLock: '' } },
+        );
+      }
+      const asked = calls.filter((c) => c.operation === 'chat.reply').slice(-2);
+      expect(asked).toHaveLength(2);
+      expect(asked[1]!.prefixChars).toBeGreaterThan(0);
+      if (mode !== 'cache') return;
+
+      const [first, second] = (
+        await AiUsage.find({
+          operation: 'chat.reply',
+          simulated: { $ne: true },
+        })
+          .sort({ createdAt: 1 })
+          .lean()
+      ).slice(-2);
+      // Anthropic's input counts are separate; their sum is the whole prompt. Tokens per
+      // character, from this very prompt, turn the system prompt's and the opening's lengths
+      // into token estimates.
+      const total =
+        second!.inputTokens + second!.cachedInputTokens + (second!.cacheWriteTokens ?? 0);
+      const perChar = total / (CHAT_SYSTEM_PROMPT.length + asked[1]!.chars);
+      const systemTokens = perChar * CHAT_SYSTEM_PROMPT.length;
+      const openingTokens = perChar * asked[1]!.prefixChars;
+      console.info(
+        `[live anthropic] cache: first write=${first!.cacheWriteTokens} read=${first!.cachedInputTokens} uncached=${first!.inputTokens}; second write=${second!.cacheWriteTokens} read=${second!.cachedInputTokens} uncached=${second!.inputTokens}; estimates system≈${Math.round(systemTokens)} opening≈${Math.round(openingTokens)} tokens`,
+      );
+      expect(second!.provider).toBe('anthropic');
+      expect(first!.cacheWriteTokens).toBeGreaterThan(0);
+      // The second question reads what the first wrote...
+      expect(second!.cachedInputTokens).toBeGreaterThanOrEqual(first!.cacheWriteTokens * 0.95);
+      // ...and that is more than the system prompt: the story and briefs came from the cache too.
+      expect(second!.cachedInputTokens - systemTokens).toBeGreaterThan(openingTokens * 0.5);
+      expect(requests.every((r) => r.host === 'api.anthropic.com')).toBe(true);
+    },
+    120_000,
+  );
 });

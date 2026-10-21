@@ -356,6 +356,38 @@ describe('research briefs and grounded chat (scripted model, fake search)', () =
     expect(calls.at(-1)?.prompt).toContain(`FOCUS: ${offer.suggestedFocus}`);
   });
 
+  it('marks the story and its briefs, identical for every question, as the cacheable opening', async () => {
+    const { Story } = await getModels();
+    const story = (await Story.findOne({ headline: /Zeitz MOCAA opens/ }).lean())!;
+    const storyId = String(story._id);
+    const { llm, calls } = scripted();
+    const deps = { llm, search: createFakeSearch([background]).client, now: () => new Date() };
+    const { taskKey } = await requestResearch({ storyId, userId: 'editor-1', depth: 'standard' });
+    await runResearch({ taskKey, deps });
+
+    for (const content of [
+      'What has Asante made with bottle caps?',
+      'Where is the retrospective?',
+    ]) {
+      const asked = await postChatMessage({ storyId, userId: 'editor-1', content });
+      await runChatReply({ taskKey: asked.taskKey, deps });
+      // A lowered answer starts follow-up research (ADR-038), which holds the story; not run here.
+      const { Task } = await getModels();
+      await Task.updateMany(
+        { kind: 'research', activeLock: { $exists: true } },
+        { $set: { status: 'skipped' }, $unset: { activeLock: '' } },
+      );
+    }
+    const [first, second] = calls.filter((c) => c.operation === 'chat');
+    const opening = (c: typeof first) => c!.prompt.slice(0, c!.cacheablePrefixLength ?? 0);
+    expect(first!.cacheablePrefixLength).toBeGreaterThan(0);
+    // Byte for byte the same opening, ending where the question-specific part begins.
+    expect(opening(second)).toBe(opening(first));
+    expect(opening(first)).toMatch(/^STORY:\n[\s\S]*RESEARCH BRIEFS:\n[\s\S]+\n\n$/);
+    expect(first!.prompt.slice(first!.cacheablePrefixLength!)).toMatch(/^SOURCES:\n/);
+    expect(question(first!.prompt)).not.toBe(question(second!.prompt));
+  });
+
   it('records only the steps it takes, with what each found, and skips reading when nothing is new', async () => {
     const { Story, SourceArticle, Task } = await getModels();
     const zeitz = (await Story.findOne({ headline: /Zeitz MOCAA opens/ }).lean())!;

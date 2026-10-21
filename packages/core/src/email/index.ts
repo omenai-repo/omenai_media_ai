@@ -40,7 +40,23 @@ export function isEmailConfigured(): boolean {
   return Boolean(optionalEnv('RESEND_API_KEY') && optionalEnv('EMAIL_FROM'));
 }
 
-export async function sendEmail(message: EmailMessage): Promise<EmailResult> {
+/**
+ * The longest a send may take. Resend's SDK sets no timeout of its own, and an invitation waits
+ * on its email: a provider that never answered held the request open indefinitely (reproduced
+ * 2026-10-21), so the owner never saw the link.
+ */
+export const EMAIL_SEND_TIMEOUT_MS = 10_000;
+
+/**
+ * Sends one email. Never throws for a delivery problem and never waits longer than the timeout:
+ * a refused, failed, thrown or unanswered send comes back as `{ sent: false }` with the reason,
+ * so callers (an invitation shows its link instead) carry on. A misconfigured EMAIL_TRANSPORT
+ * still throws: that's a setup mistake, not a delivery failure.
+ */
+export async function sendEmail(
+  message: EmailMessage,
+  options: { timeoutMs?: number } = {},
+): Promise<EmailResult> {
   const simulated = fixtureTransport();
   if (simulated === 'sent') {
     console.info(`[fixture email, not sent] to ${message.to}: ${message.subject}`);
@@ -55,11 +71,32 @@ export async function sendEmail(message: EmailMessage): Promise<EmailResult> {
   const apiKey = optionalEnv('RESEND_API_KEY');
   const from = optionalEnv('EMAIL_FROM');
   if (!apiKey || !from) return { sent: false, reason: 'not_configured' };
-  client ??= new Resend(apiKey);
-  const { data, error } = await client.emails.send({ from, ...message });
-  if (error || !data)
-    return { sent: false, reason: 'failed', error: error?.message ?? 'Unknown email error' };
-  return { sent: true, id: data.id };
+  const timeoutMs = options.timeoutMs ?? EMAIL_SEND_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    client ??= new Resend(apiKey);
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`the email service didn’t answer within ${timeoutMs / 1000} s`)),
+        timeoutMs,
+      );
+    });
+    // A send that settles after the timeout must never surface as unhandled.
+    const sending = client.emails.send({ from, ...message });
+    sending.catch(() => undefined);
+    const { data, error } = await Promise.race([sending, timedOut]);
+    if (error || !data)
+      return { sent: false, reason: 'failed', error: error?.message ?? 'Unknown email error' };
+    return { sent: true, id: data.id };
+  } catch (error) {
+    return {
+      sent: false,
+      reason: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const escape = (value: string) =>

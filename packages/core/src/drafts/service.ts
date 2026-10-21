@@ -349,10 +349,12 @@ export async function runDraftGeneration(input: { taskKey: string; deps: DraftDe
     onRetry: () => progress.notice('retrying'),
     onRepair: () => progress.notice('repairing'),
   };
+  // The whole prompt may be cached: a shortening request or a repair round resends it seconds
+  // later as its opening.
   const first = await deps.llm.streamObject({
     ...request,
     operation: 'draft.generate',
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: 'user', content: prompt, cacheablePrefixLength: prompt.length }],
     onText: draftPreview(progress),
   });
   let output: DraftOutput = first.data;
@@ -368,6 +370,7 @@ export async function runDraftGeneration(input: { taskKey: string; deps: DraftDe
       messages: [
         {
           role: 'user',
+          cacheablePrefixLength: prompt.length,
           content: `${prompt}\n\nTOO LONG: your draft has ${measured.count} ${measured.unit}; the limit is ${limit.max}. Write it again within the limit, keeping the most important facts and the same evidence rules.\nYOUR DRAFT:\n${output.body}`,
         },
       ],

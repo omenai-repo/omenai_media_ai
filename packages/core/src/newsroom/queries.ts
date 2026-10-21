@@ -411,6 +411,7 @@ async function usageRows(match: Record<string, unknown>): Promise<UsageRowDto[]>
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens: number;
+    cacheWriteTokens: number;
     reasoningTokens: number;
     units: number;
     unreportedCalls: number;
@@ -429,6 +430,7 @@ async function usageRows(match: Record<string, unknown>): Promise<UsageRowDto[]>
         inputTokens: { $sum: '$inputTokens' },
         outputTokens: { $sum: '$outputTokens' },
         cachedInputTokens: { $sum: '$cachedInputTokens' },
+        cacheWriteTokens: { $sum: { $ifNull: ['$cacheWriteTokens', 0] } },
         reasoningTokens: { $sum: '$reasoningTokens' },
         units: { $sum: { $ifNull: ['$units', 0] } },
         // Successful search/extract calls whose response carried no credit count.
@@ -460,6 +462,7 @@ async function usageRows(match: Record<string, unknown>): Promise<UsageRowDto[]>
     inputTokens: r.inputTokens,
     outputTokens: r.outputTokens,
     cachedInputTokens: r.cachedInputTokens ?? 0,
+    cacheWriteTokens: r.cacheWriteTokens ?? 0,
     reasoningTokens: r.reasoningTokens,
     units: r.units,
     unreportedCalls: r.unreportedCalls,

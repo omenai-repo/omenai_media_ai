@@ -19,6 +19,12 @@ export type Effort = 'low' | 'medium' | 'high';
 export interface LlmMessage {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * How many leading characters of `content` repeat across calls (a story's research; a prompt
+   * that a follow-up call extends), so a provider with explicit prompt caching may cache up to
+   * there. The text sent is the same either way; providers without it ignore this.
+   */
+  cacheablePrefixLength?: number;
 }
 
 /** Links a call to the work it served, for usage records. */
@@ -85,6 +91,11 @@ export interface LlmUsage {
   outputTokens: number;
   /** Input tokens served from the provider's prompt cache, when reported. */
   cachedInputTokens: number;
+  /**
+   * Input tokens written to the provider's prompt cache (Anthropic bills them above the normal
+   * input rate). Absent for providers that don't charge for writes.
+   */
+  cacheWriteTokens?: number;
   /** Tokens spent on internal reasoning, when reported separately. */
   reasoningTokens: number;
 }

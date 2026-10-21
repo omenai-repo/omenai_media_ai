@@ -189,14 +189,20 @@ function researchTrail(briefs: readonly ResearchBriefDoc[]): ResearchBriefDoc[] 
   return briefs.filter((b) => full.includes(b) || followUps.includes(b));
 }
 
-function chatPrompt(input: {
+/**
+ * The reply's prompt, and how much of it is the same for every question on the story: the story
+ * card and its research briefs come first and don't depend on the question (source labels come
+ * from the briefs alone), so a follow-up asked within a few minutes reads them from the
+ * provider's prompt cache. The sources' passages are chosen per question, so they come after.
+ */
+export function chatPrompt(input: {
   story: StoryDoc;
   briefs: readonly ResearchBriefDoc[];
   ordered: ReadonlyArray<{ label: string; article: SourceArticleDoc }>;
   labelOf: ReadonlyMap<string, string>;
   history: readonly ChatMessageDoc[];
   question: string;
-}): string {
+}): { content: string; cacheablePrefixLength: number } {
   const { story, briefs, ordered, labelOf, history, question } = input;
   const places = (story.geography ?? [])
     .map((g) => (g.city ? `${g.city}, ${g.country}` : g.country))
@@ -250,7 +256,11 @@ function chatPrompt(input: {
   const conversation = history
     .map((m) => `${m.role === 'user' ? 'EDITOR' : 'ASSISTANT'}: ${m.content}`)
     .join('\n');
-  return `STORY:\n${card}\n\nRESEARCH BRIEFS:\n${briefText}\n\nSOURCES:\n${sourceText}\n\n${conversation ? `CONVERSATION SO FAR:\n${conversation}\n\n` : ''}QUESTION: ${question}`;
+  const stable = `STORY:\n${card}\n\nRESEARCH BRIEFS:\n${briefText}\n\n`;
+  return {
+    content: `${stable}SOURCES:\n${sourceText}\n\n${conversation ? `CONVERSATION SO FAR:\n${conversation}\n\n` : ''}QUESTION: ${question}`,
+    cacheablePrefixLength: stable.length,
+  };
 }
 
 /**
@@ -425,7 +435,7 @@ export async function streamChatReply(input: {
         messages: [
           {
             role: 'user',
-            content: chatPrompt({
+            ...chatPrompt({
               story,
               briefs,
               ordered,

@@ -14,6 +14,8 @@ const aiUsageSchema = new Schema(
     inputTokens: { type: Number, default: 0 },
     outputTokens: { type: Number, default: 0 },
     cachedInputTokens: { type: Number, default: 0 },
+    /** Input written to the prompt cache (Anthropic; recorded since 2026-10-21, earlier rows 0). */
+    cacheWriteTokens: { type: Number, default: 0 },
     reasoningTokens: { type: Number, default: 0 },
     /** Provider-reported credits or request units (e.g. Tavily), when exposed. */
     units: { type: Number, default: null },

@@ -33,6 +33,8 @@ export interface ScriptedCall {
   operation: ScriptedOperation;
   tier: ModelTier;
   prompt: string;
+  /** The prompt's cacheable opening, as the service marked it (null when unmarked). */
+  cacheablePrefixLength: number | null;
 }
 
 export type ScriptHandler = (prompt: string, tier: ModelTier) => unknown;
@@ -107,7 +109,12 @@ export function createScriptedLlm(
     const operation = operationFor(request.system);
     const tier = MODEL_TIER[request.model] ?? 'primary';
     const prompt = request.messages[0]?.content ?? '';
-    calls.push({ operation, tier, prompt });
+    calls.push({
+      operation,
+      tier,
+      prompt,
+      cacheablePrefixLength: request.messages[0]?.cacheablePrefixLength ?? null,
+    });
     if (outages.delete(operation))
       throw new LlmError('unavailable', 'scripted outage', 'gemini', { status: 503 });
     const handler = script[operation];

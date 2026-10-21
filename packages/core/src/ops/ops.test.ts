@@ -16,6 +16,7 @@ const row = (overrides: Partial<UsageRowDto>): UsageRowDto => ({
   inputTokens: 0,
   outputTokens: 0,
   cachedInputTokens: 0,
+  cacheWriteTokens: 0,
   reasoningTokens: 0,
   units: 0,
   unreportedCalls: 0,
@@ -30,6 +31,8 @@ describe('cost estimates (list prices, never presented as billed cost)', () => {
         row({ inputTokens: 1_000_000, outputTokens: 100_000, cachedInputTokens: 500_000 }),
       ).usd,
     ).toBeCloseTo(2 + 1 + 0.1);
+    // Cache writes: 1.25x Sonnet's $2 input rate.
+    expect(estimateRowCost(row({ cacheWriteTokens: 1_000_000 })).usd).toBeCloseTo(2.5);
     expect(estimateRowCost(row({ provider: 'tavily', model: null, units: 25 })).usd).toBeCloseTo(
       0.2,
     );

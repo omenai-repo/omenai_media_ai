@@ -151,6 +151,8 @@ export interface UsageRowDto {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
+  /** Input written to the prompt cache (Anthropic). */
+  cacheWriteTokens: number;
   reasoningTokens: number;
   units: number;
   /** Successful calls whose provider response didn't include a credit count. */

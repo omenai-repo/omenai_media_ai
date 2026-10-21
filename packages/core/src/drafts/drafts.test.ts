@@ -191,6 +191,11 @@ describe('drafts (scripted model)', () => {
     const x = await s.generate('x_post');
     const linkedin = await s.generate('linkedin_post');
     expect(attempts).toBe(4);
+    // The whole first prompt is the cacheable opening of the shortening request that extends it.
+    const [generate, shorten] = s.calls.filter((c) => c.operation === 'draft');
+    expect(generate!.cacheablePrefixLength).toBe(generate!.prompt.length);
+    expect(shorten!.prompt.startsWith(generate!.prompt)).toBe(true);
+    expect(shorten!.cacheablePrefixLength).toBe(generate!.prompt.length);
     expect(s.calls.filter((c) => c.operation === 'draft')).toHaveLength(4);
     const view = await getDraftsView(s.storyId);
     const post = view.formats.x_post.versions[0]!;

@@ -46,6 +46,34 @@ describe('email', () => {
     });
   });
 
+  it('reports a send that throws (network failure, SDK error) as failed, without throwing', async () => {
+    process.env.RESEND_API_KEY = 're_test';
+    process.env.EMAIL_FROM = 'Omenai <newsroom@omenai.example>';
+    send.mockRejectedValueOnce(new TypeError('fetch failed'));
+    expect(await sendEmail({ to: 'a@b.c', subject: 's', text: 't', html: 'h' })).toEqual({
+      sent: false,
+      reason: 'failed',
+      error: 'fetch failed',
+    });
+  });
+
+  it('gives up on a send that never answers, within the timeout', async () => {
+    process.env.RESEND_API_KEY = 're_test';
+    process.env.EMAIL_FROM = 'Omenai <newsroom@omenai.example>';
+    send.mockReturnValueOnce(new Promise(() => {}));
+    const started = Date.now();
+    const result = await sendEmail(
+      { to: 'a@b.c', subject: 's', text: 't', html: 'h' },
+      { timeoutMs: 50 },
+    );
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(result).toEqual({
+      sent: false,
+      reason: 'failed',
+      error: 'the email service didn’t answer within 0.05 s',
+    });
+  });
+
   it('escapes content in the HTML template', () => {
     const email = invitationEmail({
       to: 'x@y.z',
