@@ -130,9 +130,26 @@ const CHAT_MODEL_VARIABLES = [
   'GEMINI_MODEL_TRIAGE',
   'GEMINI_MODEL_PRIMARY',
   'GEMINI_MODEL_ESCALATION',
+  'ANTHROPIC_MODEL_TRIAGE',
+  'ANTHROPIC_MODEL_PRIMARY',
+  'ANTHROPIC_MODEL_ESCALATION',
   'AI_DAILY_CALL_LIMIT',
   'SEARCH_DAILY_CREDIT_LIMIT',
 ] as const;
+// Production is Anthropic only (llm/config.ts refuses anything else at the first model call).
+if (runtime === 'production') {
+  for (const [side, env] of [
+    ['web', web],
+    ['worker', worker],
+  ] as const) {
+    if (env.LLM_PROVIDER !== 'anthropic')
+      fail(
+        `${side}: LLM_PROVIDER must be anthropic in production (is "${env.LLM_PROVIDER ?? ''}").`,
+      );
+    if (env.GEMINI_API_KEY)
+      notes.push(`${side}: GEMINI_API_KEY is set but production never uses it; remove it.`);
+  }
+}
 if (runtime === 'live-dev' || runtime === 'production') {
   const keyName =
     (web.LLM_PROVIDER ?? worker.LLM_PROVIDER) === 'anthropic'

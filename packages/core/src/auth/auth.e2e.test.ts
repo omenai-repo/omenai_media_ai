@@ -3,6 +3,7 @@
  * in-memory replica set. These exercise the actual sign-up, sign-in and session paths.
  */
 import { betterAuth } from 'better-auth';
+import { getSessionCookie } from 'better-auth/cookies';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { getModels } from '../db/models.js';
@@ -39,6 +40,8 @@ function createTestAuth(rateLimit = false) {
 }
 
 type Auth = ReturnType<typeof createTestAuth>;
+/** Any Better Auth instance, whatever options it was built with. */
+type AuthHandler = { handler: (request: Request) => Promise<Response> };
 
 function post(auth: Auth, path: string, body: unknown, cookie?: string, ip = '203.0.113.7') {
   return auth.handler(
@@ -228,5 +231,157 @@ describe('email sign-in', () => {
     expect(statuses).toContain(429);
     // Limits are persisted in MongoDB, so they hold across serverless instances.
     expect(await db.db.collection('rateLimit').countDocuments()).toBeGreaterThan(0);
+  });
+});
+
+/** The `name=value` pair of the session cookie a response sets. */
+function sessionCookie(response: Response): string {
+  const cookie = response.headers.getSetCookie().find((c) => c.includes('session_token='));
+  expect(cookie).toBeDefined();
+  return cookie!.split(';')[0]!;
+}
+
+async function getSession(auth: AuthHandler, cookie: string, base = BASE_URL) {
+  const response = await auth.handler(
+    new Request(`${base}/api/auth/get-session`, { headers: { cookie } }),
+  );
+  expect(response.status).toBe(200);
+  return (await response.json()) as { user: { email: string; role: string } } | null;
+}
+
+describe('sessions', () => {
+  async function signedInEditor(auth: Auth): Promise<string> {
+    const { token } = await invite();
+    expect((await signUp(auth, 'editor@omenai.example', token)).status).toBe(200);
+    const response = await post(auth, '/sign-in/email', {
+      email: 'editor@omenai.example',
+      password: PASSWORD,
+    });
+    expect(response.status).toBe(200);
+    return sessionCookie(response);
+  }
+
+  it('returns the signed-in user, and nothing once signed out', async () => {
+    const auth = createTestAuth();
+    const cookie = await signedInEditor(auth);
+    expect((await getSession(auth, cookie))?.user).toMatchObject({
+      email: 'editor@omenai.example',
+      role: 'editor',
+    });
+
+    // The cookie carries `<session token>.<signature>`.
+    const token = decodeURIComponent(cookie.split('=')[1]!).split('.')[0];
+    expect(await db.db.collection('session').countDocuments({ token })).toBe(1);
+
+    expect((await post(auth, '/sign-out', {}, cookie)).status).toBe(200);
+    // The old cookie no longer opens a session, and its session record is gone.
+    expect(await getSession(auth, cookie)).toBeNull();
+    expect(await db.db.collection('session').countDocuments({ token })).toBe(0);
+  });
+
+  it('treats an expired session as signed out', async () => {
+    const auth = createTestAuth();
+    const cookie = await signedInEditor(auth);
+    await db.db
+      .collection('session')
+      .updateMany({}, { $set: { expiresAt: new Date(Date.now() - 1_000) } });
+    expect(await getSession(auth, cookie)).toBeNull();
+  });
+});
+
+/**
+ * Production as deployed: an https base URL (secure cookies) and Better Auth's origin checks on.
+ * Better Auth turns those checks off under test by default, so the tests above never see them.
+ */
+describe('production-shaped configuration', () => {
+  const PRODUCTION_URL = 'https://newsroom.omenai.example';
+
+  function createProductionAuth() {
+    const options = createAuthOptions({
+      client: db.client,
+      db: db.db,
+      secret: 'test-secret-that-is-long-enough-for-better-auth',
+      baseURL: PRODUCTION_URL,
+      rateLimit: false,
+    });
+    return betterAuth({ ...options, advanced: { disableOriginCheck: false } });
+  }
+
+  function postFrom(
+    auth: AuthHandler,
+    origin: string,
+    path: string,
+    body: unknown,
+    cookie?: string,
+  ) {
+    return auth.handler(
+      new Request(`${PRODUCTION_URL}/api/auth${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin,
+          'x-forwarded-for': '203.0.113.7',
+          ...(cookie ? { cookie } : {}),
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  async function signIn(auth: AuthHandler): Promise<Response> {
+    const { token } = await invite();
+    const signUpResponse = await auth.handler(
+      new Request(`${PRODUCTION_URL}/api/auth/sign-up/email`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: PRODUCTION_URL,
+          cookie: `${INVITE_COOKIE_NAME}=${token}`,
+        },
+        body: JSON.stringify({ email: 'editor@omenai.example', password: PASSWORD, name: 'E' }),
+      }),
+    );
+    expect(signUpResponse.status).toBe(200);
+    return postFrom(auth, PRODUCTION_URL, '/sign-in/email', {
+      email: 'editor@omenai.example',
+      password: PASSWORD,
+    });
+  }
+
+  it('sets a secure, HTTP-only session cookie that the sign-in redirect check recognises', async () => {
+    const auth = createProductionAuth();
+    const response = await signIn(auth);
+    expect(response.status).toBe(200);
+    const header = response.headers.getSetCookie().find((c) => c.includes('session_token='))!;
+    expect(header).toMatch(/^__Secure-better-auth\.session_token=/);
+    expect(header).toMatch(/; Secure/i);
+    expect(header).toMatch(/; HttpOnly/i);
+
+    const cookie = sessionCookie(response);
+    // proxy.ts lets a request through only if it finds this cookie.
+    expect(getSessionCookie(new Headers({ cookie }))).toBeTruthy();
+    expect((await getSession(auth, cookie, PRODUCTION_URL))?.user.email).toBe(
+      'editor@omenai.example',
+    );
+  });
+
+  it('refuses a cookie-carrying request from any origin but BETTER_AUTH_URL', async () => {
+    const auth = createProductionAuth();
+    const cookie = sessionCookie(await signIn(auth));
+
+    // e.g. the app opened on its *.vercel.app address while BETTER_AUTH_URL names the domain.
+    const elsewhere = await postFrom(
+      auth,
+      'https://omenai-media.vercel.app',
+      '/sign-out',
+      {},
+      cookie,
+    );
+    expect(elsewhere.status).toBe(403);
+    expect(await errorCode(elsewhere)).toBe('INVALID_ORIGIN');
+    expect(await getSession(auth, cookie, PRODUCTION_URL)).not.toBeNull();
+
+    expect((await postFrom(auth, PRODUCTION_URL, '/sign-out', {}, cookie)).status).toBe(200);
+    expect(await getSession(auth, cookie, PRODUCTION_URL)).toBeNull();
   });
 });

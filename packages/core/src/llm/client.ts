@@ -1,11 +1,14 @@
+import { createHash } from 'node:crypto';
+
 import * as z from 'zod';
 
-import { readLlmConfig } from './config.js';
+import { assertProviderAllowed, readLlmConfig, type LlmConfig } from './config.js';
 import { toNeutralJsonSchema } from './json-schema.js';
 import { createAnthropicProvider } from './providers/anthropic.js';
 import { createGeminiProvider } from './providers/gemini.js';
 import {
   LlmError,
+  MODEL_TIERS,
   type CallTiming,
   type Effort,
   type LlmMessage,
@@ -19,6 +22,7 @@ import {
   type StreamObjectRequest,
   type TextRequest,
 } from './types.js';
+import { readRuntime, type Runtime } from '../config/runtime.js';
 import { assertAiBudget } from '../ops/budget.js';
 import { recordUsageInDatabase, type UsageRecorder } from './usage.js';
 
@@ -345,24 +349,54 @@ export function createLlmClient(options: {
   };
 }
 
-let cached: LlmClient | undefined;
+/**
+ * Builds the adapter for a resolved configuration. The runtime rule is checked again here, where
+ * adapters are constructed, so even a future caller that skipped `readLlmConfig` could not build
+ * a Gemini adapter in production.
+ */
+function createProvider(config: LlmConfig, runtime: Runtime): LlmProvider {
+  assertProviderAllowed(runtime, config.provider);
+  switch (config.provider) {
+    case 'anthropic':
+      return createAnthropicProvider({ apiKey: config.apiKey });
+    case 'gemini':
+      return createGeminiProvider({ apiKey: config.apiKey });
+  }
+}
 
-/** The process-wide client for the configured provider (`LLM_PROVIDER`). */
+let cached: { key: string; client: LlmClient } | undefined;
+
+/**
+ * The process-wide client for the configured provider (`LLM_PROVIDER`). The configuration is
+ * resolved on every call and the client rebuilt when it changes, so a long-lived process (warm
+ * Trigger.dev workers reuse theirs) can never keep serving a provider or model it was not
+ * configured with.
+ */
 export function getLlmClient(): LlmClient {
-  if (!cached) {
-    const config = readLlmConfig();
-    const provider =
-      config.provider === 'anthropic'
-        ? createAnthropicProvider({ apiKey: config.apiKey })
-        : createGeminiProvider({ apiKey: config.apiKey });
+  const runtime = readRuntime();
+  const config = readLlmConfig();
+  const key = [
+    runtime,
+    config.provider,
+    ...MODEL_TIERS.map((tier) => config.models[tier]),
+    createHash('sha256').update(config.apiKey).digest('hex'),
+  ].join('|');
+  if (cached?.key !== key) {
     // Every real request passes the daily usage limit first (required in live development).
-    cached = createLlmClient({
-      provider,
+    const client = createLlmClient({
+      provider: createProvider(config, runtime),
       models: config.models,
       beforeCall: () => assertAiBudget(),
     });
+    cached = { key, client };
+    // Names only, never the key: which provider and models this process will call.
+    console.info('[llm] model client ready', {
+      runtime,
+      provider: config.provider,
+      models: config.models,
+    });
   }
-  return cached;
+  return cached.client;
 }
 
 /** Test hook: forget the cached client so a changed environment takes effect. */

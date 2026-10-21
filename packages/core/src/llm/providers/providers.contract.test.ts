@@ -205,7 +205,9 @@ describe('Anthropic adapter', () => {
     expect(call.headers.get('anthropic-beta')).toContain('server-side-fallback-2026-07-01');
     expect(call.body).toMatchObject({
       model: 'claude-sonnet-5-5',
-      max_tokens: 500,
+      // The 500-token answer budget plus medium-effort thinking headroom: max_tokens caps
+      // thinking and answer together, and these models think by default.
+      max_tokens: 500 + 4_096,
       fallbacks: 'default',
       system: [{ type: 'text', cache_control: { type: 'ephemeral' } }],
       output_config: { effort: 'medium', format: { type: 'json_schema' } },
@@ -221,7 +223,20 @@ describe('Anthropic adapter', () => {
       model: 'claude-sonnet-5-5',
       stopReason: 'complete',
       usage: { inputTokens: 200, outputTokens: 40, cachedInputTokens: 150, reasoningTokens: 25 },
+      attempts: { attempts: 1, retryStatuses: [] },
     });
+  });
+
+  it.each([
+    ['low', 1_024],
+    ['high', 8_192],
+  ] as const)('adds %s-effort thinking headroom to the answer budget', async (effort, headroom) => {
+    const captured = stubFetch(200, message());
+    await createAnthropicProvider({ apiKey: 'k', maxRetries: 0 }).generate({
+      ...request('claude-haiku-5-5'),
+      effort,
+    });
+    expect(captured[0]!.body.max_tokens).toBe(500 + headroom);
   });
 
   it('does not request a refusal fallback for Haiku, and sends no schema for text calls', async () => {
@@ -259,6 +274,201 @@ describe('Anthropic adapter', () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(LlmError);
     expect(error).toMatchObject({ kind, retryable, provider: 'anthropic', status });
+  });
+
+  function respondInTurn(responses: Array<() => Response>) {
+    let calls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(responses[Math.min(calls++, responses.length - 1)]!())),
+    );
+    return () => calls;
+  }
+  const overloaded = () =>
+    new Response(JSON.stringify({ type: 'error', error: { type: 'overloaded_error' } }), {
+      status: 529,
+      headers: { 'content-type': 'application/json', 'retry-after-ms': '5' },
+    });
+  const ok = () =>
+    new Response(JSON.stringify(message()), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it("follows the caller's retry policy, and records and reports each retry", async () => {
+    const calls = respondInTurn([overloaded, ok]);
+    const retried: number[] = [];
+    const result = await createAnthropicProvider({ apiKey: 'k' }).generate({
+      ...request('claude-sonnet-5-5'),
+      retry: { attempts: 2, initialDelayMs: 10, maxDelayMs: 20 },
+      onRetry: (status) => retried.push(status),
+    });
+    expect(calls()).toBe(2);
+    expect(retried).toEqual([529]);
+    expect(result).toMatchObject({
+      stopReason: 'complete',
+      attempts: { attempts: 2, retryStatuses: [529] },
+    });
+  });
+
+  it('stops at the policy and keeps the attempts on an Anthropic-labelled error', async () => {
+    const calls = respondInTurn([overloaded]);
+    const error = await createAnthropicProvider({ apiKey: 'k' })
+      .generate({ ...request('m'), retry: { attempts: 2, initialDelayMs: 10, maxDelayMs: 20 } })
+      .catch((e: unknown) => e);
+    expect(calls()).toBe(2);
+    expect(error).toMatchObject({
+      kind: 'unavailable',
+      retryable: true,
+      provider: 'anthropic',
+      status: 529,
+      attempts: { attempts: 2, retryStatuses: [529, 529] },
+    });
+    expect((error as Error).message).toMatch(/^Anthropic API error 529/);
+  });
+
+  it('passes the per-attempt timeout and abort signal to the request', async () => {
+    let seen: AbortSignal | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: unknown, init?: RequestInit) => {
+        seen = init?.signal ?? undefined;
+        return new Promise<Response>((_, reject) =>
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          ),
+        );
+      }),
+    );
+    const controller = new AbortController();
+    const pending = createAnthropicProvider({ apiKey: 'k', maxRetries: 0 })
+      .generate({ ...request('m'), signal: controller.signal, attemptTimeoutMs: 60_000 })
+      .catch((e: unknown) => e);
+    await vi.waitFor(() => expect(seen).toBeDefined());
+    controller.abort();
+    // The request itself was cancelled (not merely abandoned), and the failure is not retryable.
+    expect(seen!.aborted).toBe(true);
+    expect(await pending).toMatchObject({ kind: 'aborted', retryable: false });
+  });
+});
+
+describe('Anthropic adapter, streamed', () => {
+  const sse = (events: Array<Record<string, unknown>>) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          for (const event of events)
+            controller.enqueue(
+              encoder.encode(`event: ${String(event.type)}\ndata: ${JSON.stringify(event)}\n\n`),
+            );
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    );
+  const start = {
+    type: 'message_start',
+    message: {
+      id: 'msg_1',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-5-5',
+      content: [],
+      stop_reason: null,
+      stop_sequence: null,
+      usage: { input_tokens: 200, output_tokens: 1, cache_read_input_tokens: 150 },
+    },
+  };
+  const events = [
+    start,
+    { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'hmm' } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: '{"pillar":' } },
+    {
+      type: 'content_block_delta',
+      index: 1,
+      delta: { type: 'text_delta', text: '"art","score":4}' },
+    },
+    { type: 'content_block_stop', index: 1 },
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: { output_tokens: 40, output_tokens_details: { thinking_tokens: 25 } },
+    },
+    { type: 'message_stop' },
+  ];
+
+  async function drain(stream: AsyncGenerator<string, unknown>) {
+    const yielded: string[] = [];
+    for (;;) {
+      const next = await stream.next();
+      if (next.done) return { yielded, result: next.value };
+      yielded.push(next.value);
+    }
+  }
+
+  it('streams only the answer text, then reports usage, finish, model and attempts', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: unknown, init?: RequestInit) => {
+        bodies.push(
+          JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<string, unknown>,
+        );
+        return Promise.resolve(sse(events));
+      }),
+    );
+    const { yielded, result } = await drain(
+      createAnthropicProvider({ apiKey: 'k', maxRetries: 0 }).stream!(request('claude-sonnet-5-5')),
+    );
+    expect(bodies[0]).toMatchObject({ stream: true, model: 'claude-sonnet-5-5' });
+    expect(yielded).toEqual(['{"pillar":', '"art","score":4}']);
+    expect(result).toEqual({
+      text: '{"pillar":"art","score":4}',
+      model: 'claude-sonnet-5-5',
+      stopReason: 'complete',
+      usage: { inputTokens: 200, outputTokens: 40, cachedInputTokens: 150, reasoningTokens: 25 },
+      attempts: { attempts: 1, retryStatuses: [] },
+    });
+  });
+
+  it('turns an overload in the middle of the stream into a retryable Anthropic error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          sse([
+            start,
+            { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '{"p' } },
+            { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } },
+          ]),
+        ),
+      ),
+    );
+    const error = await drain(
+      createAnthropicProvider({ apiKey: 'k', maxRetries: 0 }).stream!(request('m')),
+    ).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LlmError);
+    expect(error).toMatchObject({ kind: 'unavailable', retryable: true, provider: 'anthropic' });
+  });
+
+  it('ends the request when the consumer stops reading early', async () => {
+    let seen: AbortSignal | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: unknown, init?: RequestInit) => {
+        seen = init?.signal ?? undefined;
+        return Promise.resolve(sse(events));
+      }),
+    );
+    const stream = createAnthropicProvider({ apiKey: 'k', maxRetries: 0 }).stream!(request('m'));
+    expect((await stream.next()).value).toBe('{"pillar":');
+    await stream.return(undefined as never);
+    expect(seen?.aborted).toBe(true);
   });
 });
 
