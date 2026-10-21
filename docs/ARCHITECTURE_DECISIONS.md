@@ -685,3 +685,88 @@ Newest entries are appended at the bottom. Don't rewrite history; supersede an e
     - **Bands:** a row of columns is now used only when three stories fill it. Otherwise stories two to four are wide bands that alternate the image's side (left, right, left).
     - **Columns:** they never wrap. Below 1024 px they become numbered rows with a small image.
     - **Image frames:** every frame has a set size whatever the source's proportions: a band's image area, a column's 4:5 or 3:2 frame, a row's thumbnail. Images are cropped to fill. The exception is a tall image that would lose more than about 40% of its height: it is shown whole on a mat. Wide and panoramic images are always cropped. Image records carry no size or focal point, so crops are centred.
+
+## ADR-041 — Discovery gates rest on checked evidence; primary sources are judged on their merits
+
+- **Status:** Implemented (2026-10-20). Fixtures and deterministic tests only: cross-domain gate tables, key-claim checks, pipeline cases and 13 mutation checks (VERIFICATION.md). Live model behaviour is unverified and needs a separately approved check.
+- **Context.** A read-only audit against the playbook (PROGRESS.md, "Playbook discrepancies") confirmed that discovery's qualitative gates were lexical or left to the model:
+  - **Editorial test.** It passed any answer of 80 or more characters and 12 words (§2).
+  - **Exceptions.** One passed on 60 characters alone (§5).
+  - **Angle.** An empty angle could qualify (§8: the 65–79 band needs "a plausible angle").
+  - **Source quality.** The model rated it for every source, and the rating was never read (§8, §10).
+  - **Triage signals.** Triage's exclusion signals never reached the evaluator.
+  - **Critical issues.** The prompt narrowed §5's "key claims cannot be verified" to "a central claim contradicted or resting on rumour".
+- **Decision.** No new model call. The evaluation already returns everything the checks need; each check can only lower an outcome.
+  1. **Key claims.** The evaluation lists up to four claims the recommendation depends on, each with source labels and a word-for-word quote.
+     - Core checks them with the shared statement checks (`checkClaim`, `flagConflicts` from `research/citations.ts`, ADR-039), against the exact excerpts the evaluator was shown.
+     - They are stored on the story with discovery's own wording: `no_defect_found`, `quote_not_found`, `detail_not_in_quote`, `quote_unrelated`, `conflicting`, `unknown_source`. The word "verified" is never used.
+  2. **Gates** (`@repo/shared` `applyGates`, pure):
+
+     | Gate             | Outcome when it fails                                                                            |
+     | ---------------- | ------------------------------------------------------------------------------------------------ |
+     | `sources`        | **Hold** when no source is rated primary, reputable or specialist. A missing rating is unknown.  |
+     | `evidence`       | **Hold** when there is no key claim, a claim didn't pass, or a claim rests only on weak sources. |
+     | `editorial_test` | **Reject** when the answer names no existing key claim; the length floors stay.                  |
+     | `exclusion:*`    | Stands unless the exception is at least 60 characters **and** rests on a claim that passed.      |
+     | `card_complete`  | **Reject** when there's no angle or why-it-matters.                                              |
+     | `signal:*`       | **Hold** for each triage signal the evaluator neither confirmed nor dismissed.                   |
+
+  3. **Primary sources** (`single_origin`).
+     - An originator is authoritative for its own facts, so a single primary source is not weak in itself.
+     - A source is _independent_ when it is rated reputable or specialist and its host (from our records) differs from every primary source's host.
+     - With no independent source, the story is held when:
+       - the evaluator judges it only the originator's announcement (`pressRelease.leadOnly`). The recommended action becomes "research", as in §5: "a press release can be a lead";
+       - or why it matters rests only on `attributed` claims, which include an originator describing itself as a "landmark" or "first".
+  4. **Prompts.** The evaluation prompt asks for key claims with exact quotes, `supportedBy` for the editorial test and for exceptions, confirmation or dismissal of each triage signal, and the lead-only judgement. It separates a key claim the sources don't support (an accuracy issue: hold) from a detail still to confirm (routine).
+  5. **Older evaluations.** A late evaluation stored without the `evidence` gate is assessed again, never ranked under the old rules.
+- **What it does not establish.**
+  - A passing check means only that no known defect was found by lexical checks. It never shows that a claim is true or that its quote supports it.
+  - Source ratings are the model's assessment, not verification: they can hold a story, never vouch for it.
+  - Gate reasons, stored statuses and editor copy say so.
+- **Trade-offs.**
+  - Fewer stories will qualify, especially when the model's quotes don't match word for word. The playbook accepts a smaller edition.
+  - Evaluation output grows: `maxOutputTokens` rose from 3,500 to 4,500. The Gemini schema stays within budget: 2 new enum values, and the triage-signal id is a validated string.
+  - The confidence cap for single-origin stories was proposed and not adopted (awaiting the product owner).
+  - A semantic support check would need a model call, and was not built (as in ADR-039).
+
+## ADR-042 — Fair, bounded intake at every cap; weighted tier rotation; a search budget checked before the first search
+
+- **Status:** Implemented (2026-10-20). Fixture and pure tests, including a multi-run integrity test and 14 mutation checks (VERIFICATION.md). No live search was made.
+- **Context.** The audit confirmed the following, each pinned by Stage 0 tests:
+  - **Extraction:** overflow was marked `skipped` and never read.
+  - **Clustering:** overflow in a completed run was never clustered.
+  - **Caps:** filled by comparing Tavily scores across queries. A score is relevance to one query, so the comparison is meaningless.
+  - **Evaluation order:** most-covered stories first. Wide English coverage is not importance (§3), and it starves single-source, under-covered stories.
+  - **Failures:** a failed assessment was never retried.
+  - **Rotation:** 3 queries a day searched Tier 1 only, and 5 never reached Tiers 3–5.
+- **Decision.**
+  1. **Caps unchanged, fairer choice.** `maxExtract`, `clusterMaxItems` and `maxEvaluations` still bound each run, so search credits and model calls don't change. `fairOrder` (`discovery/intake.ts`) fills each cap: oldest batch first (FIFO, so nothing is overtaken indefinitely), then one item per originating query in turn, each query in its own score order. Article counts are not used.
+  2. **A backlog, never a drop.**
+     - Over-cap articles stay `pending` (extraction) or unplaced (clustering), and later runs take them first.
+     - Anything that ages past `freshnessDays` is marked expired and counted: `expiredBeforeExtract`, `expiredBeforeCluster` and `expiredBeforeEvaluation` in the funnel, and an `expired_unprocessed` shortfall reason.
+     - Triage takes every article read but not triaged, so a failed run's work is still adopted.
+     - Articles record `searchQuery`, `searchTier`, `seenQueries` and `intakeRunKey`. Status changes are conditional, so a resumed run can't process an article twice.
+  3. **One retry for a failed assessment.** `evaluation.failedRuns` counts failed runs, once per run however often a failure is reported. The first failure is retried in the next run; a second is final.
+  4. **Audit trail.** Each run stores the thresholds, caps and models it used, once, at its start (§10).
+  5. **Weighted rotation** (`selectQueries`).
+     - **The cycle.** A fixed 10-slot tier cycle from the 40/30/10/10/10 shares by smooth weighted round-robin: 1,2,3,1,2,4,1,5,2,1.
+     - **Daily selection.** Day _d_ takes slots _d·count_ onward. Each tier's turn takes the next query in a pool ordered to move through the pillars.
+     - **Properties, each tested:**
+       - Every tier gets exactly its share over any 10 days, for any count.
+       - At 3 a day, no tier waits more than 4 days.
+       - At 10 a day, each day is 4/3/1/1/1.
+       - The same date, count and registry always give the same queries, across calls and restarts.
+     - **Limits.** Rotation spreads searches; it doesn't guarantee discovery and never affects ranking: tier is still only the last tiebreak, and there's no quota on recommendations.
+  6. **Registry.**
+     - The 37 active queries are tagged with a pillar.
+     - 18 proposed additions (`DRAFT_DISCOVERY_QUERIES`) would give every tier all six pillars. They are **not searched** until the product owner approves the wording.
+  7. **Search budget.**
+     - **Rates.** Tavily's published rates, checked 2026-10-20: 1 credit per basic search; 1 per 5 successful basic extracts, with failures free.
+     - **Worst case per run** (`worstCaseRunCredits`): all queries, plus a full extract, plus revisits. At the code defaults that is 24 credits, which exceeds the live-dev limit of 20 a day on its own. Live-dev is at most 6.
+     - **`pnpm env:check`.** It prints the worst case, and warns when it plus a research reserve of 5 exceeds `SEARCH_DAILY_CREDIT_LIMIT`.
+     - **Before the first search.** A run checks its worst case against what's left, and refuses cleanly, having spent nothing, if it can't fit.
+     - Live-dev query counts were **not** raised: rotation gives tier coverage over days instead.
+- **Trade-offs.**
+  - **FIFO.** Oldest-first can make a strong new story wait a run when the backlog is full. The backlog is limited by the freshness window, and every expiry is counted.
+  - **Older records.** Articles stored before this change have no query or tier, so they fall into a shared "unknown" lane. Old `skipped` articles stay skipped.
+  - **The research reserve** is a planning figure, not a limit.

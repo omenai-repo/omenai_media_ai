@@ -6,6 +6,7 @@
 import { SCORING_DIMENSION_IDS, type ScoringDimension } from '@repo/shared';
 
 import type { EvaluationOutput } from '../discovery/schemas.js';
+import { stripMarkdown } from '../research/citations.js';
 import type { ExtractedPage, SearchClient, SearchHit } from '../search/types.js';
 
 export interface FixtureArticle extends SearchHit {
@@ -179,6 +180,28 @@ export function createFakeSearch(initialHits: FixtureArticle[]) {
 
 type Scores = Record<ScoringDimension, number>;
 
+/** The text an evaluation prompt shows for one source label (A1, A2…). */
+export function promptSourceText(prompt: string, ref: string): string {
+  const sources = prompt.split('SOURCES:\n')[1]?.split('\n\nTRIAGE SIGNALS')[0] ?? '';
+  const block = sources.split('\n---\n').find((b) => b.startsWith(`${ref} |`)) ?? '';
+  return block
+    .split('\n')
+    .slice(1)
+    .filter((line) => !line.startsWith('[snippet only'))
+    .join('\n');
+}
+
+/**
+ * A key claim that quotes the first full sentence of a source's text word for word, so it passes
+ * the deterministic checks. Fixture only: real claims come from the model and are checked the
+ * same way.
+ */
+export function fixtureKeyClaims(prompt: string, ref = 'A1'): EvaluationOutput['keyClaims'] {
+  const text = stripMarkdown(promptSourceText(prompt, ref));
+  const sentence = /[^.!?\n]{20,}?[.!?](?=\s|$)/.exec(text)?.[0]?.trim();
+  return sentence ? [{ statement: sentence, type: 'fact', sources: [ref], quote: sentence }] : [];
+}
+
 /** Builds a schema-valid evaluation with the given dimension scores. */
 export function fixtureEvaluation(
   scores: Scores,
@@ -188,10 +211,12 @@ export function fixtureEvaluation(
     headline: 'Fixture headline',
     summary: 'A neutral fixture summary of the development.',
     whatHappened: 'Something happened on a stated date, per A1.',
+    keyClaims: [],
     editorialTest: {
       canAnswer: true,
       answer:
         'This matters to Omenai’s audience because it shows how a specific institution and artist are reshaping who gets a retrospective, and on whose terms, in an African museum.',
+      supportedBy: [1],
     },
     whyItMatters: 'Specific significance. Clear editorial fit.',
     angle: 'Who decides which careers become histories?',
@@ -219,6 +244,8 @@ export function fixtureEvaluation(
     ) as EvaluationOutput['scores'],
     confidence: 'high',
     exclusions: [],
+    dismissedSignals: [],
+    pressRelease: { leadOnly: false, reason: 'Fixture: reported beyond the announcement.' },
     criticalIssues: [],
     needsEscalation: false,
     escalationReason: null,

@@ -4,10 +4,16 @@
  */
 import type { ModelTier } from '../llm/types.js';
 import type { UsageRecorder } from '../llm/usage.js';
-import { fixtureEvaluation, scores } from './discovery-fixtures.js';
+import { fixtureEvaluation, fixtureKeyClaims, scores } from './discovery-fixtures.js';
 import { createScriptedLlm, promptArticles, promptStories } from './fake-llm.js';
 
+/** Each scripted assessment quotes its lead source, as a real one must (ADR-041). */
 export function evaluationFor(prompt: string, tier: ModelTier) {
+  const result = scriptedEvaluation(prompt, tier);
+  return result.keyClaims.length ? result : { ...result, keyClaims: fixtureKeyClaims(prompt) };
+}
+
+function scriptedEvaluation(prompt: string, tier: ModelTier) {
   const lead = promptArticles(prompt)[0]?.headline ?? '';
   const headline = lead;
   if (/Gele/.test(lead))
@@ -24,7 +30,12 @@ export function evaluationFor(prompt: string, tier: ModelTier) {
     return fixtureEvaluation(scores(3), {
       headline,
       exclusions: [
-        { id: 'thin_listicle_seo', evidence: 'Ten openings, one line each.', exception: null },
+        {
+          id: 'thin_listicle_seo',
+          evidence: 'Ten openings, one line each.',
+          exception: null,
+          supportedBy: [],
+        },
       ],
     });
   if (/whisky/.test(lead))
@@ -36,8 +47,14 @@ export function evaluationFor(prompt: string, tier: ModelTier) {
           id: 'generic_luxury_promotion',
           evidence: 'Sponsored brand event copy.',
           exception: null,
+          supportedBy: [],
         },
-        { id: 'press_release_repackaged', evidence: 'Mirrors the brand release.', exception: null },
+        {
+          id: 'press_release_repackaged',
+          evidence: 'Mirrors the brand release.',
+          exception: null,
+          supportedBy: [],
+        },
       ],
     });
   if (/punk/.test(lead))

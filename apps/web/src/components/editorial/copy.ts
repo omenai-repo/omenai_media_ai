@@ -245,6 +245,8 @@ export function shortfallPlain(reason: ShortfallReason): string {
       return `${plural(n, 'story', 'stories')} repeated something we’d already covered.`;
     case 'deferred_late':
       return `${plural(n, 'story', 'stories')} will be considered in the next edition.`;
+    case 'expired_unprocessed':
+      return `${plural(n, 'item', 'items')} waited too long in the queue and went out of date before we could read or assess ${n === 1 ? 'it' : 'them'}.`;
     default:
       return reason.message;
   }

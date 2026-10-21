@@ -258,6 +258,11 @@ export async function finalizeRun(input: {
     belowThreshold: count('below_threshold'),
     qualified: count('qualified'),
     shortlisted: shortlist.length,
+    waitingToExtract: stats.extract?.waiting ?? 0,
+    waitingToCluster: stats.cluster?.overCap ?? 0,
+    expiredBeforeExtract: stats.extract?.expired ?? 0,
+    expiredBeforeCluster: stats.cluster?.expired ?? 0,
+    expiredBeforeEvaluation: stats.cluster?.expiredStories ?? 0,
   };
   const shortfallReasons = deriveShortfallReasons(funnel, config.shortlistTargetMin);
 

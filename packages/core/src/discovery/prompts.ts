@@ -76,18 +76,22 @@ ${list(CROSS_CUTTING_TAGS.ids.map((id) => [id, CROSS_CUTTING_TAGS.labels[id]]))}
 Regions:
 ${list(REGION_IDS.map((id) => [id, REGIONS[id].label]))}
 
-EDITORIAL TEST: complete “This matters to Omenai’s audience because…” with a specific, evidence-based answer. If you cannot, set canAnswer to false. A weak answer looks like “A new museum has opened in Lagos. This is an important cultural story.” A strong one names the specific question, people, history or connection that makes it significant, and stays a hypothesis where reporting has not confirmed it.
+KEY CLAIMS: list up to four factual claims the recommendation depends on: what happened, and the facts the editorial test and angle rest on. For each, give the source labels and a quote copied word for word from that source's text. Quotes are checked against our stored text; a quote we cannot find, or one that lacks a date, figure or name the claim gives, holds the story. Mark a claim "attributed" when it is someone's claim rather than a documented fact, including an originator describing its own work as a "landmark", a "first" or "groundbreaking".
+
+EDITORIAL TEST: complete “This matters to Omenai’s audience because…” with a specific, evidence-based answer, and list in supportedBy the key claims it rests on (1 = the first). Your analysis may go beyond the claims; the facts it relies on may not. If you cannot, set canAnswer to false. A weak answer looks like “A new museum has opened in Lagos. This is an important cultural story.” A strong one names the specific question, people, history or connection that makes it significant, and stays a hypothesis where reporting has not confirmed it.
 
 SCORING: score each dimension 0–5 (integers) with a concrete rationale. Do not compute a total.
 ${SCORING_DIMENSION_IDS.map((id) => `- ${id} (${SCORING_DIMENSIONS[id].label}): 5 means ${SCORING_DIMENSIONS[id].highMeans}`).join('\n')}
 Scores support human judgement; do not inflate them. Celebrity names, press releases, timeliness and sponsor fit must not carry a weak story.
 
-EXCLUSIONS: flag any that apply, with evidence. If a normally excluded subject has a specific, evidence-based cultural angle, give it as the exception; otherwise leave exception null.
+EXCLUSIONS: flag any that apply, with evidence. If a normally excluded subject has a specific, evidence-based cultural angle, give it as the exception and list in supportedBy the key claims it rests on; otherwise leave exception null and supportedBy empty. The message may list TRIAGE SIGNALS raised by a first pass: confirm each one by flagging it here, or dismiss it in dismissedSignals with the reason it does not apply.
 ${list(EXCLUSIONS.ids.map((id) => [id, EXCLUSIONS.labels[id]]))}
 
 CRITICAL ISSUES are rare. Flag one only when the story itself cannot responsibly proceed as recommended, for example: the central claim is contradicted or rests on an unverifiable rumour or anonymous social post; the sources are not establishable; the story depends on material with no legitimate rights path (e.g. leaked, stolen or private images are the story); or covering it would cause harm (privacy, exploitation, misrepresentation). Use severity "hold" when a human check could resolve it and "reject" when it makes the story unsuitable.
-Routine checks are NOT critical issues: confirming dates, names or details, requesting image permissions, missing context, or excerpts we truncated. Put those in verificationNeeds (and note rights as unconfirmed in visualOpportunities).
+A key claim that the provided sources do not support is an accuracy issue (severity "hold"): the story cannot be recommended until it is established. A detail still to confirm (an exact date or name, a figure the sources give but you would check at the source), image permissions, missing context and excerpts we truncated are routine: put those in verificationNeeds (and note rights as unconfirmed in visualOpportunities).
 ${list(CRITICAL_ISSUE_KINDS.ids.map((id) => [id, CRITICAL_ISSUE_KINDS.labels[id]]))}
+
+PRESS RELEASE: a press release can be a lead, never the whole story. Set pressRelease.leadOnly to true when, so far, the story is only the originator's own announcement, with no reporting or angle beyond it. An originator is authoritative for its own facts (its dates, its programme); its account of its own significance is a claim.
 
 PEOPLE TO APPROACH: only people named in the sources; never imply access is confirmed.
 ESCALATION: set needsEscalation only when sources conflict or ethics/rights questions need deeper judgement.`;

@@ -24,6 +24,15 @@ export interface RunFunnel {
   belowThreshold: number;
   qualified: number;
   shortlisted: number;
+  /**
+   * Fair intake (ADR-042): work over a stage's cap waits in a backlog instead of being dropped,
+   * and anything that ages past the freshness window first is counted here, never lost silently.
+   */
+  waitingToExtract: number;
+  waitingToCluster: number;
+  expiredBeforeExtract: number;
+  expiredBeforeCluster: number;
+  expiredBeforeEvaluation: number;
 }
 
 export function emptyFunnel(): RunFunnel {
@@ -47,6 +56,11 @@ export function emptyFunnel(): RunFunnel {
     belowThreshold: 0,
     qualified: 0,
     shortlisted: 0,
+    waitingToExtract: 0,
+    waitingToCluster: 0,
+    expiredBeforeExtract: 0,
+    expiredBeforeCluster: 0,
+    expiredBeforeEvaluation: 0,
   };
 }
 
@@ -58,6 +72,7 @@ export const SHORTFALL_CODES = [
   'below_threshold',
   'suppressed_repeats',
   'deferred_late',
+  'expired_unprocessed',
 ] as const;
 export type ShortfallCode = (typeof SHORTFALL_CODES)[number];
 
@@ -125,6 +140,15 @@ export function deriveShortfallReasons(funnel: RunFunnel, targetMin: number): Sh
       code: 'deferred_late',
       count: funnel.deferredLate,
       message: `${funnel.deferredLate} were not evaluated in time (over the evaluation cap or finished after the candidate set closed); they roll to the next run.`,
+    });
+  }
+  const expired =
+    funnel.expiredBeforeExtract + funnel.expiredBeforeCluster + funnel.expiredBeforeEvaluation;
+  if (expired > 0) {
+    reasons.push({
+      code: 'expired_unprocessed',
+      count: expired,
+      message: `${expired} waited past the freshness window before they could be processed (${funnel.expiredBeforeExtract} before reading, ${funnel.expiredBeforeCluster} before grouping, ${funnel.expiredBeforeEvaluation} before assessment).`,
     });
   }
   return reasons.toSorted((a, b) => b.count - a.count);

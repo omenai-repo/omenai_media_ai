@@ -20,6 +20,11 @@ allowBuilds:
   mongodb-memory-server: false
   # trigger.dev CLI helper for remote deploy builds; revisit when first running `trigger deploy`.
   '@depot/cli': false
+  # Transitive deps of @google/genai. protobufjs's postinstall only checks for an optional CLI
+  # version scheme; genai's preinstall is an echo. Neither is needed at runtime. Without an
+  # explicit decision, pnpm 12 fails `pnpm install` in CI (ERR_PNPM_IGNORED_BUILDS).
+  '@google/genai': false
+  protobufjs: false
 
 minimumReleaseAgeExclude:
   - '@trigger.dev/core@4.7.4'

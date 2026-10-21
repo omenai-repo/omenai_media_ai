@@ -3,7 +3,7 @@ import { defineConfig } from '@trigger.dev/sdk';
 export default defineConfig({
   // Not a secret: identifies the Trigger.dev project. Credentials come from `trigger login`
   // (CLI) and TRIGGER_SECRET_KEY (apps that trigger tasks).
-  project: 'proj_ydafdiqitotsvbyazmaw',
+  project: 'proj_tiypkdhtraueqaxkqoqv',
   dirs: ['./src/trigger'],
   runtime: 'node-24',
   // Generous ceiling; individual tasks set tighter limits where they need them.

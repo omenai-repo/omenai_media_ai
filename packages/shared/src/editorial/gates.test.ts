@@ -19,6 +19,8 @@ function input(overrides: Partial<GateInput> = {}): GateInput {
         url: 'https://businessday.ng/arts/alexis-galleries-gele',
         publisher: 'BusinessDay',
         publishedAt: new Date('2026-10-12T03:00:00Z'),
+        quality: 'reputable_secondary',
+        host: 'businessday.ng',
       },
     ],
     novelty: 'new',
@@ -27,6 +29,14 @@ function input(overrides: Partial<GateInput> = {}): GateInput {
     editorialTest: { canAnswer: true, answer: STRONG_ANSWER },
     exclusions: [],
     criticalIssues: [],
+    evidence: {
+      keyClaims: [{ type: 'fact', passed: true, problem: null, sources: [0] }],
+      editorialSupport: [1],
+      pressRelease: { leadOnly: false, reason: 'Independent reporting.' },
+    },
+    card: { angle: 'Who authors a head-tie?', whyItMatters: 'Two generations in dialogue.' },
+    triageSignals: [],
+    dismissedSignals: [],
     ...overrides,
   };
 }
@@ -49,6 +59,7 @@ describe('applyGates', () => {
             id: 'thin_listicle_seo',
             evidence: 'A list of ten openings with one line each.',
             exception: null,
+            supportedBy: [],
           },
         ],
       }),
@@ -65,11 +76,13 @@ describe('applyGates', () => {
             id: 'generic_luxury_promotion',
             evidence: 'Sponsored whisky-brand event copy; no independent reporting.',
             exception: null,
+            supportedBy: [],
           },
           {
             id: 'press_release_repackaged',
             evidence: 'Mirrors the brand press release.',
             exception: null,
+            supportedBy: [],
           },
         ],
       }),
@@ -85,6 +98,7 @@ describe('applyGates', () => {
             id: 'routine_announcement',
             evidence: 'A single artwork offered for sale.',
             exception: null,
+            supportedBy: [],
           },
         ],
         editorialTest: { canAnswer: false, answer: '' },
@@ -103,6 +117,7 @@ describe('applyGates', () => {
             evidence: 'Coverage is driven by a musician’s fame.',
             exception:
               'The musician is funding a sound archive of 1970s Lagos highlife recordings, raising questions about who owns and preserves the scene’s history.',
+            supportedBy: [1],
           },
         ],
       }),
@@ -121,6 +136,7 @@ describe('applyGates', () => {
             id: 'fame_only',
             evidence: 'Famous designer.',
             exception: 'It is culturally relevant.',
+            supportedBy: [1],
           },
         ],
       }),
@@ -167,6 +183,8 @@ describe('applyGates', () => {
         url: 'https://example.org/a',
         publisher: 'Example',
         publishedAt: new Date('2026-08-01T00:00:00Z'),
+        quality: 'reputable_secondary' as const,
+        host: 'example.org',
       },
     ];
     expect(applyGates(input({ sources: old })).outcome).toBe('reject');
@@ -175,12 +193,13 @@ describe('applyGates', () => {
   });
 
   it('holds when no publication date is known or a date is in the future', () => {
-    const undated = [{ url: 'https://example.org/a', publisher: 'Example', publishedAt: null }];
+    const source = { url: 'https://example.org/a', publisher: 'Example', host: 'example.org' };
+    const undated = [{ ...source, quality: 'specialist' as const, publishedAt: null }];
     expect(applyGates(input({ sources: undated })).outcome).toBe('hold');
     const future = [
       {
-        url: 'https://example.org/a',
-        publisher: 'Example',
+        ...source,
+        quality: 'specialist' as const,
         publishedAt: new Date('2026-12-01T00:00:00Z'),
       },
     ];

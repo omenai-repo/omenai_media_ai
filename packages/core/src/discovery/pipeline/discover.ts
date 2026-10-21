@@ -35,11 +35,13 @@ export async function discoverStage(
       publishedDate: string | null;
       score: number;
       query: string;
+      tier: number;
+      queries: Set<string>;
     }
   >();
   let failures = 0;
 
-  for (const { query } of queries) {
+  for (const { query, tier } of queries) {
     try {
       const hits = await deps.search.search(
         query,
@@ -55,7 +57,9 @@ export async function discoverStage(
         const canonical = canonicalizeUrl(hit.url);
         if (!canonical) continue;
         const existing = best.get(canonical);
-        if (!existing || hit.score > existing.score) best.set(canonical, { ...hit, query });
+        const queries = new Set([...(existing?.queries ?? []), query]);
+        // The first query to return it is its lane; later ones are kept as an audit trail.
+        best.set(canonical, existing ? { ...existing, queries } : { ...hit, query, tier, queries });
       }
     } catch (error) {
       if (error instanceof SearchError && (error.kind === 'auth' || error.kind === 'quota'))
@@ -85,9 +89,11 @@ export async function discoverStage(
           snippet: hit.snippet.slice(0, 2_000),
           firstRunKey: runKey,
           searchQuery: hit.query,
+          searchTier: hit.tier,
           searchScore: hit.score,
         },
         $set: { lastSeenRunKey: runKey },
+        $addToSet: { seenQueries: { $each: [...hit.queries] } },
       },
       { upsert: true },
     );

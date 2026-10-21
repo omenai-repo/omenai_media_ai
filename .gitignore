@@ -19,10 +19,10 @@ next-env.d.ts
 # Testing
 coverage/
 
-# Environment files: never commit secrets. Only the documented examples are tracked.
+# Environment files: never commit any of them, examples included. Patterns match at any depth.
 .env
 .env.*
-!.env.example
+*.env
 
 # Logs
 *.log

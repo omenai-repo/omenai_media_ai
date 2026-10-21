@@ -21,7 +21,14 @@ export const STORY_RELATIONS = [
   'same_development_no_new_info',
 ] as const;
 export const EDITORIAL_STATES = ['none', 'saved', 'skipped'] as const;
-export const EVALUATION_STATUSES = ['pending', 'evaluated', 'failed', 'not_required'] as const;
+/** `expired`: waited past the freshness window before it could be assessed (counted, ADR-042). */
+export const EVALUATION_STATUSES = [
+  'pending',
+  'evaluated',
+  'failed',
+  'not_required',
+  'expired',
+] as const;
 
 /**
  * An editorial development: the thing Omenai might cover. Distinct from the articles that report
@@ -66,6 +73,33 @@ const decisionSchema = new Schema(
   { _id: false },
 );
 
+/**
+ * A claim the recommendation rests on, with the quote the assessment gave and what the
+ * deterministic checks found (ADR-041). `no_defect_found` is never proof the claim is true.
+ */
+const keyClaimSchema = new Schema(
+  {
+    statement: { type: String, required: true },
+    type: { type: String, enum: ['fact', 'attributed'], required: true },
+    sourceLabels: { type: [String], default: [] },
+    sourceArticleIds: { type: [Schema.Types.ObjectId], default: [] },
+    quote: { type: String, default: '' },
+    status: {
+      type: String,
+      enum: [
+        'no_defect_found',
+        'quote_not_found',
+        'detail_not_in_quote',
+        'quote_unrelated',
+        'conflicting',
+        'unknown_source',
+      ],
+      required: true,
+    },
+  },
+  { _id: false },
+);
+
 const recommendationSchema = new Schema(
   {
     runKey: { type: String, required: true },
@@ -88,6 +122,7 @@ const storySchema = new Schema(
       canAnswer: { type: Boolean, default: false },
       answer: { type: String, default: '' },
     },
+    keyClaims: { type: [keyClaimSchema], default: [] },
     angle: { type: String, default: '' },
     whyNow: { type: String, default: '' },
     primaryPillar: { type: String, enum: [...PILLAR_IDS, null], default: null },
@@ -136,6 +171,8 @@ const storySchema = new Schema(
       escalated: { type: Boolean, default: false },
       evaluatedAt: { type: Date, default: null },
       error: { type: String, default: null },
+      /** Runs whose assessment failed after retries; one failure is retried in the next run. */
+      failedRuns: { type: Number, default: 0 },
     },
     // Relationships.
     sourceArticleIds: { type: [Schema.Types.ObjectId], default: [] },

@@ -860,6 +860,102 @@ The same Newsroom code was run against every fixture edition: 8 stories (with a 
 
 Not re-checked this round: keyboard and reduced motion. The shared components and focus styles are unchanged since the earlier pass.
 
+## Playbook compliance corrections (2026-10-20)
+
+ADR-041 and ADR-042. Offline only: fixtures, the scripted model behind the real `LlmClient`, a fake search and the in-memory MongoDB. No Gemini, Anthropic, Tavily, Atlas or Trigger.dev calls were made. The one network read was Tavily's public credit documentation.
+
+### Stage 0: defects pinned before any change
+
+Characterisation tests, run against the unchanged code, all passed. Each pins a defect:
+
+- **Gates (8 cases):**
+  - a padded generic editorial answer passed, in 5 domains;
+  - a vague exception of 60+ characters passed;
+  - a source of unknown quality passed the source gate;
+  - qualification had no input for the angle.
+- **Intake (5 cases):**
+  - extraction overflow was `skipped` and never read;
+  - one query's scores filled the extraction cap;
+  - clustering overflow in a completed run was never clustered;
+  - a single-source story waited behind newer multi-source ones for 3 runs;
+  - a failed assessment was never retried.
+- **Rotation (2 cases):** 3 a day reached Tier 1 only; 5 a day never reached Tiers 3–5.
+
+Each Stage 0 file was replaced by the corrected expectations in the stage that fixed it. While each fix was being made, its Stage 0 cases were seen to fail.
+
+### What the new tests cover
+
+| Area                              | Tests                                                                             | What they show                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Evidence, source and origin gates | `shared/editorial/gates.evidence.test.ts` (144 cases: 12 per domain × 12 domains) | Each domain has cases that must pass beside cases that must fail: a padded answer; a phantom claim number; a claim that failed or is missing; weak or missing ratings; a claim on a weak source beside an established one; exceptions (grounded, ungrounded, tied to a failed claim, too short); a missing angle; primary sources (facts pass, lead-only held, self-description held, same-host secondary isn't independent); triage signals (unaddressed held, dismissed, confirmed). Every pass reason says "not proof of support" or "not verification". |
+| Key-claim checks                  | `core/discovery/pipeline/evidence.test.ts` (12 domains)                           | Located → `no_defect_found`; invented quote, missing figure, mis-cited source and unknown label each lowered. "verified" is never stored.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Evidence through the pipeline     | same file                                                                         | Found quote qualifies; invented quote → hold, action research; unknown-only sources → hold; single primary source with located facts → qualified; lead-only → hold, research; triage signal shown in the prompt, dismissed → qualified, ignored → hold.                                                                                                                                                                                                                                                                                                     |
+| Older evaluations                 | `pipeline.test.ts`                                                                | A late evaluation without the `evidence` gate is assessed again (1 call), then ranked.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Fair order                        | `core/discovery/intake.test.ts`                                                   | Older batch first; queries take turns; scores never compared across queries; deterministic in any input order.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Intake at every cap               | `core/discovery/pipeline/intake.test.ts`                                          | Overflow read next day, backlog first; queries share the cap; expiry counted and reported; clustering overflow grouped next day; a waiting single-source story assessed before newer ones; one retry for a failure, then final; a failure counted once per run; run config recorded once at start.                                                                                                                                                                                                                                                          |
+| The whole bounded flow            | same file                                                                         | Four runs with tight caps: an interruption at triage and resume, a duplicate trigger, one URL from two queries and two runs, and expiry. At every point each article and story is in exactly one state, and funnel counts match the database. Nothing is read or assessed twice. Expiry happened for both articles and stories.                                                                                                                                                                                                                             |
+| Rotation and registry             | `core/discovery/sources.test.ts`                                                  | Cycle 1,2,3,1,2,4,1,5,2,1; each tier's exact share over any 10 days for 1–10 queries a day (3 start dates); at most 4 days between turns at 3 a day; 4/3/1/1/1 at 10; every query used over time, none twice in a day; every pillar within one pool pass. Same output across repeated calls, call orders and a fresh module instance (`vi.resetModules`); count changes follow the cycle. No duplicates; with the drafts, every tier covers six pillars; drafts never searched; a resumed run searches its run key's day.                                   |
+| Search budget                     | `core/discovery/budget.test.ts`                                                   | Worst case: 24 at the defaults, 6 in live-dev, pages rounded up. Fit against 20, 29 and no limit. A run that can't fit is refused before any search (0 searches); one that fits goes ahead.                                                                                                                                                                                                                                                                                                                                                                 |
+| Shortfall and copy                | `shortfall.test.ts`, `review-reason.test.ts`                                      | `expired_unprocessed` with its breakdown; plain sentences for the new gates.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Schema budget                     | `llm/json-schema.test.ts` (unchanged)                                             | The larger evaluation schema stays within Gemini's enum budget.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+
+### Mutation checks
+
+Each new condition was disabled in turn, with the original restored after each run. All **27 were caught**:
+
+- **13 for the gates and claim checks:**
+  - the not-established source hold
+  - holds for a failed claim, a claim resting on weak sources, and no key claims
+  - the editorial test's claim reference
+  - exception grounding
+  - lead-only and attributed-only holds
+  - same-host independence
+  - the required angle
+  - the unaddressed-signal hold
+  - "pass only on no defect"
+  - the mapping of lowered statuses
+- **9 for intake:**
+  - newest batch first
+  - no turn-taking
+  - overflow dropped
+  - expiry off
+  - clustering limited to this run
+  - most-articles-first ordering
+  - no failure retry
+  - stale stories not expired
+  - non-idempotent failure marking. This one was missed at first; the test "counts a failure once per run" was added and catches it.
+- **5 for rotation and budget:**
+  - day offset ignoring the count
+  - no turn-taking within a tier
+  - the old floor allocation
+  - revisits not counted
+  - no pre-run check
+
+### Full check
+
+Run once on the final code (`pnpm format:check`, then `turbo run lint typecheck test build --continue --force`, no cache):
+
+- **Lint, typecheck, test and build: 16 of 16 tasks pass.**
+- **Tests:**
+  - shared: 225 passed
+  - core: 453 passed, 40 skipped (the live tests, which need approval)
+  - web: 86 passed
+  - worker: 6 passed
+- **Format:** flags only `apps/worker/.mcp.json`, the known committed file this work didn't touch.
+
+Two earlier full runs failed, and are recorded here:
+
+1. A `@repo/shared` typecheck error in the new `gates.evidence.test.ts`: a too-narrow parameter type, which Vitest doesn't check.
+2. Six `@repo/core` lint errors in the new `intake.test.ts`: `any` from the untyped `funnel` field.
+
+Both were fixed in the test files only, before the run above.
+
+### Limits
+
+- **Real-model behaviour is unverified.** In particular, whether Gemini (or, later, Anthropic) supplies quotes the checks can find, and how often stories are now held. This needs a separately approved, bounded live evaluation.
+- **The checks are lexical.** A pass means no known defect, never that a claim is true. Source ratings are the model's judgement.
+- **The 18 draft registry queries are not active** until the product owner approves their wording.
+
 ## Feature verification matrix
 
 | Area                                                                       | Status                                                     | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |

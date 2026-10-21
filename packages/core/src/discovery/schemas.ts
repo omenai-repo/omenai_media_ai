@@ -72,6 +72,23 @@ export const clusterOutputSchema = z.object({
 });
 export type ClusterOutput = z.output<typeof clusterOutputSchema>;
 
+/**
+ * The factual claims a recommendation depends on, each with a quote copied from the labelled
+ * source. Checked in code against the text the evaluator was shown (ADR-041): a pass means no
+ * known defect, never that the claim is true.
+ */
+const keyClaim = z.object({
+  statement: text(300),
+  type: z
+    .enum(['fact', 'attributed'])
+    .describe('attributed: a claim someone makes, including an originator describing itself'),
+  sources: z.array(articleRef).min(1).max(2),
+  quote: text(600).describe('Exact words copied from that source'),
+});
+
+/** Key claims by number (1 = the first key claim). */
+const claimNumbers = z.array(z.number().int().min(1).max(4)).max(4);
+
 const dimension = z.object({
   score: z.number().int().min(0).max(5),
   rationale: text(400).describe('Evidence-based; distinguish evidence from inference'),
@@ -92,9 +109,11 @@ export const evaluationOutputSchema = z.object({
   headline: text(140).describe('Working headline; no clickbait or unsupported claims'),
   summary: text(600).describe('Neutral 2–4 sentence summary'),
   whatHappened: text(500).describe('Neutral account with date and source labels'),
+  keyClaims: z.array(keyClaim).max(4),
   editorialTest: z.object({
     canAnswer: z.boolean(),
     answer: z.string().max(600).describe('Completes: "This matters to Omenai’s audience because…"'),
+    supportedBy: claimNumbers.describe('The key claims this answer rests on'),
   }),
   whyItMatters: z.string().max(500).describe('Two specific sentences on significance and fit'),
   angle: z
@@ -143,9 +162,24 @@ export const evaluationOutputSchema = z.object({
         id: z.enum(EXCLUSIONS.ids),
         evidence: text(300),
         exception: z.string().max(400).nullable(),
+        supportedBy: claimNumbers.describe('The key claims an exception rests on'),
       }),
     )
     .max(6),
+  dismissedSignals: z
+    .array(
+      z.object({
+        signal: text(60).describe('A triage signal id from the prompt'),
+        reason: text(300),
+      }),
+    )
+    .max(6),
+  pressRelease: z.object({
+    leadOnly: z
+      .boolean()
+      .describe('True when the story is so far only the originator’s own announcement'),
+    reason: text(300),
+  }),
   criticalIssues: z
     .array(
       z.object({

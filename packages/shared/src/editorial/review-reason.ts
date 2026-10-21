@@ -27,10 +27,13 @@ const CRITICAL_PLAIN: Record<string, string> = {
 };
 
 const CHECK_PLAIN: Record<string, string> = {
-  sources: 'no usable source',
+  sources: 'its sources aren’t established',
   freshness: 'the publication date needs checking or it is too old',
   repeat: 'already covered',
-  editorial_test: 'no clear reason it matters to our readers',
+  editorial_test: 'no clear, evidence-based reason it matters to our readers',
+  card_complete: 'no proposed angle',
+  evidence: 'a quote for a key fact wasn’t found in its source',
+  single_origin: 'so far it rests only on the originator’s own announcement',
 };
 
 /** Plain description of one failed editorial check, e.g. `exclusion:thin_listicle_seo`. */
@@ -38,6 +41,8 @@ export function plainCheck(gate: string): string {
   const [kind, id = ''] = gate.split(':');
   if (kind === 'exclusion') return EXCLUSION_PLAIN[id] ?? 'excluded by our editorial guidelines';
   if (kind === 'critical') return CRITICAL_PLAIN[id] ?? 'a serious concern needs resolving';
+  if (kind === 'signal')
+    return `a flagged concern (${EXCLUSION_PLAIN[id] ?? 'possible exclusion'}) wasn’t confirmed or ruled out`;
   return CHECK_PLAIN[gate] ?? 'an editorial check';
 }
 
@@ -46,12 +51,16 @@ export function plainCheckName(gate: string): string {
   const [kind, id = ''] = gate.split(':');
   if (kind === 'exclusion') return `Not ${EXCLUSION_PLAIN[id] ?? 'excluded content'}`;
   if (kind === 'critical') return `No unresolved concern: ${id}`;
+  if (kind === 'signal') return `Flag addressed: ${EXCLUSION_PLAIN[id] ?? id}`;
   return (
     {
-      sources: 'Has usable sources',
+      sources: 'Has established sources',
       freshness: 'Recent enough',
       repeat: 'Not a repeat',
       editorial_test: 'Clear reason it matters',
+      card_complete: 'Has a proposed angle',
+      evidence: 'Quotes for key facts found in the sources',
+      single_origin: 'More than the originator’s announcement',
     }[gate] ?? gate
   );
 }

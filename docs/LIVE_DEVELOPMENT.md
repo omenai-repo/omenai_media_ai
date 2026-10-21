@@ -84,7 +84,7 @@ They're set in `apps/worker/.env` and, for chat, identically in `apps/web/.env.l
 
 What things cost in practice, from the first live run (2026-10-16):
 
-- **One bounded discovery run:** 3 searches, plus at most 3 extraction credits, and about 8–18 Gemini calls.
+- **One bounded discovery run:** 3 searches, plus at most 3 extraction credits (at most 6 credits), and about 8–18 Gemini calls. Since 2026-10-20 a run checks this worst case against what's left of the daily limit before its first search, and refuses cleanly if it can't fit (ADR-042). `pnpm env:check` prints it. The code defaults (10 searches, 60 pages, 10 revisits) would need up to 24 credits a run, more than the live-dev limit on its own, so don't raise the discovery limits for a live check without recomputing. With 3 queries a day the tiers are covered over days by rotation (each tier its exact share over any 10 days), not every day.
 - **Research:** 2 searches, 1 extraction and 1–2 calls (a second call is a repair round; its reason is now recorded).
 - **A question:** 1 call, streamed from the web app (2 before 2026-10-16: a separate scope check, then the answer). No search.
 - **A follow-up lead:** up to 2 searches, 1 extraction and 1 call, for a short answer to its question.

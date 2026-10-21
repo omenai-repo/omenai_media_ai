@@ -1,3 +1,4 @@
+export { searchBudgetFit, worstCaseRunCredits } from './budget.js';
 export { readDiscoveryConfig, type DiscoveryConfig } from './config.js';
 export { shouldCloseCandidateSet, type CloseDecision } from './deadlines.js';
 export * from './pipeline/index.js';

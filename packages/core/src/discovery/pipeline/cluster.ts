@@ -6,7 +6,8 @@ import type { StoryDoc } from '../../db/models/story.js';
 import { LlmError } from '../../llm/types.js';
 import { titleSimilarity } from '../normalize.js';
 import { CLUSTER_SYSTEM_PROMPT } from '../prompts.js';
-import { failedRunKeys, recordRunError } from '../runs.js';
+import { articleIntake, fairOrder } from '../intake.js';
+import { recordRunError } from '../runs.js';
 import { clusterOutputSchema, type ClusterOutput } from '../schemas.js';
 import type { DiscoveryDeps } from './context.js';
 
@@ -14,13 +15,20 @@ export interface ClusterStats extends Record<string, unknown> {
   items: number;
   /** In-scope articles a failed run never placed in a story, taken on by this one. */
   adopted: number;
+  /** Over the cap: still waiting, taken first by a later run. */
   overCap: number;
+  /** Aged past the freshness window before a story took them. */
+  expired: number;
   groups: number;
   newStories: number;
   newDevelopments: number;
   updates: number;
   suppressed: number;
   carriedOver: number;
+  /** Failed assessments given their one retry in this run. */
+  retriedFailures: number;
+  /** Waiting stories that went stale before they could be assessed. */
+  expiredStories: number;
   aiCalls: number;
   fallback: boolean;
   /** Stories whose development repeated with nothing new, or that an editor skipped. */
@@ -148,12 +156,15 @@ export async function clusterStage(runKey: string, deps: DiscoveryDeps): Promise
     items: 0,
     adopted: 0,
     overCap: 0,
+    expired: 0,
     groups: 0,
     newStories: 0,
     newDevelopments: 0,
     updates: 0,
     suppressed: 0,
     carriedOver: 0,
+    retriedFailures: 0,
+    expiredStories: 0,
     aiCalls: 0,
     fallback: false,
     suppressedStoryIds: [],
@@ -163,19 +174,30 @@ export async function clusterStage(runKey: string, deps: DiscoveryDeps): Promise
   // and nothing already in any story is (so adopted articles can never be clustered twice).
   const runStories = await Story.find({ firstSeenRunKey: runKey }, { sourceArticleIds: 1 }).lean();
   const attached = runStories.flatMap((s) => s.sourceArticleIds);
-  const failed = await failedRunKeys(now, config.freshnessDays);
-  const inScope = await SourceArticle.find({
-    firstRunKey: { $in: [runKey, ...failed] },
+  const freshSince = new Date(now.getTime() - config.freshnessDays * DAY_MS);
+  // In-scope articles no story has taken, from any run: over-cap ones wait for a later run
+  // (ADR-042) until they age past the freshness window, when they are counted as expired.
+  const unplaced = {
+    origin: 'discovery' as const,
     'triage.inScope': true,
-    _id: { $nin: attached },
     storyIds: { $size: 0 },
-  })
-    .sort({ searchScore: -1 })
+    expiredAt: null,
+  };
+  const expired = await SourceArticle.updateMany(
+    { ...unplaced, retrievedAt: { $lt: freshSince } },
+    { $set: { expiredAt: now, expiredStage: 'cluster' } },
+  );
+  stats.expired = expired.modifiedCount;
+  const inScope = await SourceArticle.find({ ...unplaced, _id: { $nin: attached } })
+    .select({ content: 0, revisions: 0 })
     .lean();
-  const articles = inScope.slice(0, config.clusterMaxItems);
+  const ordered = fairOrder(inScope.map((a) => ({ ...articleIntake(a), article: a }))).map(
+    (o) => o.article,
+  );
+  const articles = ordered.slice(0, config.clusterMaxItems);
   stats.items = articles.length;
-  stats.adopted = articles.filter((a) => a.firstRunKey !== runKey).length;
-  stats.overCap = inScope.length - articles.length;
+  stats.adopted = articles.filter((a) => (a.intakeRunKey ?? a.firstRunKey) !== runKey).length;
+  stats.overCap = ordered.length - articles.length;
 
   if (articles.length > 0) {
     const recent = await Story.find({
@@ -269,7 +291,47 @@ export async function clusterStage(runKey: string, deps: DiscoveryDeps): Promise
   // Fresh stories from earlier runs that didn't get a decision there join this run: those never
   // evaluated (over the cap) are evaluated now; those evaluated after the set closed are
   // reclassified at finalize from their stored evaluation, without another model call.
-  const freshSince = new Date(now.getTime() - config.freshnessDays * DAY_MS);
+  // A late evaluation stored before the evidence gates (ADR-041) is assessed again rather than
+  // ranked under the old rules.
+  await Story.updateMany(
+    {
+      'evaluation.status': 'evaluated',
+      'evaluation.outcome': 'deferred_late',
+      'evaluation.evaluatedAt': { $gte: freshSince },
+      'gates.results.gate': { $ne: 'evidence' },
+      editorialState: { $ne: 'skipped' },
+    },
+    { $set: { 'evaluation.status': 'pending' } },
+  );
+  // An assessment that failed after its retries gets one more try in the next run (ADR-042).
+  const retried = await Story.updateMany(
+    {
+      lastCandidateRunKey: { $ne: runKey },
+      editorialState: { $ne: 'skipped' },
+      'evaluation.status': 'failed',
+      'evaluation.failedRuns': 1,
+      updatedAt: { $gte: freshSince },
+    },
+    { $set: { 'evaluation.status': 'pending' } },
+  );
+  stats.retriedFailures = retried.modifiedCount;
+  // Waiting stories that went stale before anyone assessed them are counted, never dropped silently.
+  const expiredStories = await Story.updateMany(
+    {
+      lastCandidateRunKey: { $ne: runKey },
+      editorialState: { $ne: 'skipped' },
+      $or: [
+        { 'evaluation.status': 'pending', updatedAt: { $lt: freshSince } },
+        {
+          'evaluation.status': 'evaluated',
+          'evaluation.outcome': 'deferred_late',
+          'evaluation.evaluatedAt': { $lt: freshSince },
+        },
+      ],
+    },
+    { $set: { 'evaluation.status': 'expired' } },
+  );
+  stats.expiredStories = expiredStories.modifiedCount;
   const carried = await Story.updateMany(
     {
       lastCandidateRunKey: { $ne: runKey },

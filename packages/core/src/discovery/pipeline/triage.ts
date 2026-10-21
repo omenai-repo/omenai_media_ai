@@ -3,8 +3,8 @@ import type { SourceArticleDoc } from '../../db/models/source-article.js';
 import { LlmError } from '../../llm/types.js';
 import { excerpt } from '../normalize.js';
 import { TRIAGE_SYSTEM_PROMPT } from '../prompts.js';
+import { articleIntake, fairOrder } from '../intake.js';
 import { recordRunError } from '../runs.js';
-import { failedRunKeys } from '../runs.js';
 import { triageOutputSchema } from '../schemas.js';
 import type { DiscoveryDeps } from './context.js';
 
@@ -33,27 +33,27 @@ export function triagePrompt(articles: readonly SourceArticleDoc[], excerptChars
 }
 
 /**
- * First-pass triage of this run's new articles (and any a failed run left untriaged), in small
- * batches on the triage tier. Results are
- * saved per article, so a resumed run only triages what is left. If a batch's output stays
- * invalid after the client's repair round, its articles go forward to clustering rather than
- * being silently dropped (evaluation then decides).
+ * First-pass triage of every article that has been read but not triaged: this run's intake, and
+ * any a failed run left behind. The intake cap bounds how many there are. Small batches on the
+ * triage tier; results are saved per article, so a resumed run only triages what is left. If a
+ * batch's output stays invalid after the client's repair round, its articles go forward to
+ * clustering rather than being silently dropped (evaluation then decides).
  */
 export async function triageStage(runKey: string, deps: DiscoveryDeps): Promise<TriageStats> {
   const { SourceArticle } = await getModels();
   const { config } = deps;
-  const failed = await failedRunKeys(deps.now(), config.freshnessDays);
-  const pending = await SourceArticle.find({
-    firstRunKey: { $in: [runKey, ...failed] },
+  const unread = await SourceArticle.find({
+    origin: 'discovery',
     extractionStatus: { $in: ['extracted', 'failed'] },
     triage: null,
-  })
-    .sort({ searchScore: -1 })
-    .lean();
+  }).lean();
+  const pending = fairOrder(unread.map((a) => ({ ...articleIntake(a), article: a }))).map(
+    (o) => o.article,
+  );
 
   const stats: TriageStats = {
     triaged: 0,
-    adopted: pending.filter((a) => a.firstRunKey !== runKey).length,
+    adopted: pending.filter((a) => (a.intakeRunKey ?? a.firstRunKey) !== runKey).length,
     inScope: 0,
     outOfScope: 0,
     batches: 0,

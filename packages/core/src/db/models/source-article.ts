@@ -2,7 +2,17 @@ import { SOURCE_QUALITY } from '@repo/shared';
 import { Schema, Types, type Connection, type InferSchemaType, type Model } from 'mongoose';
 
 export const ARTICLE_ORIGINS = ['discovery', 'research'] as const;
-export const EXTRACTION_STATUSES = ['pending', 'extracted', 'failed', 'skipped'] as const;
+/**
+ * `skipped` was the old over-cap state (dropped for good); new overflow stays `pending` in the
+ * backlog and becomes `expired` if it ages past the freshness window first (ADR-042).
+ */
+export const EXTRACTION_STATUSES = [
+  'pending',
+  'extracted',
+  'failed',
+  'skipped',
+  'expired',
+] as const;
 export const CHANGE_KINDS = [
   'unchanged',
   'cosmetic',
@@ -75,13 +85,24 @@ const sourceArticleSchema = new Schema(
     storyIds: { type: [Schema.Types.ObjectId], default: [], index: true },
     firstRunKey: { type: String, default: null },
     lastSeenRunKey: { type: String, default: null },
+    /** The query that first found it, and that query's tier: its lane for fair selection. */
     searchQuery: { type: String, default: null },
+    searchTier: { type: Number, min: 1, max: 5, default: null },
+    /** Every query that has returned it (audit trail; selection uses the first). */
+    seenQueries: { type: [String], default: [] },
     searchScore: { type: Number, default: 0 },
+    /** The run that took it from the backlog into processing (extraction onwards). */
+    intakeRunKey: { type: String, default: null },
+    /** When and where it aged out of the backlog unprocessed; counted, never silent. */
+    expiredAt: { type: Date, default: null },
+    expiredStage: { type: String, enum: ['extract', 'cluster', null], default: null },
   },
   { collection: 'sourceArticles', timestamps: true },
 );
 
 sourceArticleSchema.index({ firstRunKey: 1 });
+sourceArticleSchema.index({ extractionStatus: 1, retrievedAt: 1 });
+sourceArticleSchema.index({ intakeRunKey: 1 });
 sourceArticleSchema.index({ lastSeenRunKey: 1 });
 sourceArticleSchema.index({ lastCheckedAt: 1 });
 

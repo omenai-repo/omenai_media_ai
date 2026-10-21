@@ -246,20 +246,6 @@ export async function deferRun(input: {
   );
 }
 
-/**
- * Runs that failed recently (within `days`). The next run adopts their unfinished articles
- * (extracted but not triaged, in scope but in no story) so work already paid for isn't lost when
- * a run fails partway, for example during a provider outage.
- */
-export async function failedRunKeys(now: Date, days: number): Promise<string[]> {
-  const { WorkflowRun } = await getModels();
-  const runs = await WorkflowRun.find(
-    { status: 'failed', createdAt: { $gte: new Date(now.getTime() - days * 86_400_000) } },
-    { runKey: 1 },
-  ).lean();
-  return runs.map((run) => run.runKey);
-}
-
 /** A queued run quiet for this long is no longer going to start or resume on its own. */
 export const RUN_QUIET_AFTER_MS = 45 * 60_000;
 

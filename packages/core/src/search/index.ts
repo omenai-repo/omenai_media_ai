@@ -1,4 +1,5 @@
 import { requireEnv } from '../config/env.js';
+import { EXTRACT_PAGES_PER_CREDIT, SEARCH_CREDITS_PER_QUERY } from '../discovery/budget.js';
 import { assertSearchBudget } from '../ops/budget.js';
 import { createTavilySearchClient } from './tavily.js';
 import type { SearchClient } from './types.js';
@@ -7,9 +8,6 @@ export * from './types.js';
 export { classifyTavilyError, createTavilySearchClient } from './tavily.js';
 
 let cached: SearchClient | undefined;
-
-/** Tavily's basic extract costs one credit per five successful pages (failures are free). */
-const EXTRACT_PAGES_PER_CREDIT = 5;
 
 /**
  * The process-wide search client. Every request first passes the daily credit limit (required in
@@ -21,7 +19,7 @@ export function getSearchClient(): SearchClient {
     const client = createTavilySearchClient({ apiKey: requireEnv('TAVILY_API_KEY') });
     cached = {
       async search(query, options, context) {
-        await assertSearchBudget(1);
+        await assertSearchBudget(SEARCH_CREDITS_PER_QUERY);
         return client.search(query, options, context);
       },
       async extract(urls, context, options) {

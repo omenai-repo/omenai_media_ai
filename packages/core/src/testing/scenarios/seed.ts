@@ -30,7 +30,7 @@ import {
   type SearchHit,
 } from '../../search/types.js';
 import { ensureTask, failTask, progressRecorder, startTaskAttempt } from '../../tasks/service.js';
-import { fixtureEvaluation, scores } from '../discovery-fixtures.js';
+import { fixtureEvaluation, fixtureKeyClaims, scores } from '../discovery-fixtures.js';
 import { createScriptedLlm, promptArticles, promptStories } from '../fake-llm.js';
 import { createFixtureResearchLlm } from './executor.js';
 import {
@@ -463,16 +463,25 @@ export function createScenarioContext() {
             { status: 503 },
           );
         const lead = story.articles[0]!;
+        const quality = (ref: string) =>
+          articles.get(refs.find((a) => a.ref === ref)?.headline ?? '')?.quality ?? 'unknown';
+        // Quote the first source the scenario rates established, as a real assessment would.
+        const quoted =
+          refs.find((a) =>
+            ['primary', 'reputable_secondary', 'specialist'].includes(quality(a.ref)),
+          )?.ref ?? 'A1';
         return fixtureEvaluation(scores(4), {
           headline: lead.title,
+          keyClaims: fixtureKeyClaims(prompt, quoted),
           summary: `${lead.detail}.`,
           whatHappened: `${lead.detail}, according to ${lead.host} (A1).`,
           editorialTest: {
             canAnswer: true,
             answer: `This matters to Omenai’s audience because ${lead.detail.charAt(0).toLowerCase()}${lead.detail.slice(1)}, a development with cultural weight beyond the event itself.`,
+            supportedBy: [1],
           },
           whyItMatters: `${lead.detail}. A clear fit with Omenai’s coverage.`,
-          angle: '',
+          angle: `What does it change that ${lead.detail.charAt(0).toLowerCase()}${lead.detail.slice(1)}?`,
           whyNow: 'Reported this week.',
           entities: [],
           formatPotential: [

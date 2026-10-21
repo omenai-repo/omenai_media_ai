@@ -174,14 +174,15 @@ The UI polls `GET /api/tasks/[id]`, which reads our own task documents, every 3 
 
    Every check is stored in `revisions[]`.
 
-5. **Extract.** Tavily `extract` for new articles, in batches of ≤ 20, with text capped at about 12k chars.
+5. **Extract.** Tavily `extract` for waiting articles, in batches of ≤ 20, with text capped at about 12k chars. Up to `DISCOVERY_MAX_EXTRACT` a run, older runs' backlog first, the queries taking turns; over-cap articles wait for a later run and are counted as expired if they age past the freshness window (ADR-042).
 6. **Triage (triage tier).** Triage is batched to keep cost low. It produces: in-scope, exclusion signals, entities, places, event date, and a one-line event description. Basic date and source validation is deterministic. Out-of-scope articles are kept but marked.
-7. **Cluster (primary tier).** Deterministic pre-grouping first (canonical URL, title similarity plus entity/date overlap). Then one bounded AI call groups the remaining articles. The call also sees about 21 days of recent stories (including skipped ones) and labels each group `new` / `same-development-as:<id>` / `new-development-of:<id>`.
+7. **Cluster (primary tier).** Deterministic pre-grouping first: duplicates by canonical URL at discovery, then syndicated copies by title similarity (≥ 0.75). Entity and date overlap is not used (corrected 2026-10-20 to match the code). Then one bounded AI call groups the remaining articles. The call also sees about 21 days of recent stories (including skipped ones) and labels each group `new` / `same-development-as:<id>` / `new-development-of:<id>`.
    - Same development, no new info → no new recommendation. A previously skipped story stays suppressed.
    - New development → new Story linked via `relatedStoryIds`. Skipping an auction announcement doesn't block the result.
 8. **Evaluate (primary tier, bounded escalation).** One child task per cluster (cap ~25), with retries. It returns structured JSON validated by Zod: gate findings, dimension scores 0–5 with rationales, and card fields. **The total is computed in code**, never taken from the model. `applyGates()` in `@repo/shared` returns pass/hold/reject:
    - Deterministic gates: source exists, freshness, duplicate/suppressed, editorial-test sentence is specific.
    - AI-flagged gates: playbook exclusions, each requiring an evidence-based exception explanation to pass.
+   - Since 2026-10-20 (ADR-041): key claims with quotes checked against the shown text, the editorial test and exceptions resting on claims that passed, source ratings, single-origin stories judged on their merits, a required angle, and triage signals confirmed or dismissed. Every check only lowers an outcome.
    - A critical source/accuracy/rights/ethics failure means hold or reject regardless of score.
    - **Every candidate gets exactly one recorded outcome**, stored on its story and counted in the run `funnel`. The outcomes are: `qualified`, `below_threshold` (with score), `gate_hold`/`gate_reject` (with the gate ids and evidence), `suppressed_repeat`, `evaluation_failed` (with error and attempts, after retries are exhausted), `source_failed` (search or extract failure upstream) and `deferred_late`. Nothing silently disappears, so the operations dashboard can explain every gap.
    - **Shortfall visibility.** When qualified stories < `SHORTLIST_TARGET_MIN` (default 5), step 11 turns these counts into explicit reasons: insufficient candidates, failed sources, evaluation failures, editorial gates (broken down by exclusion type), below threshold, suppressed repeats. The operations dashboard shows them for that run, with a drill-down list of the affected candidates and their individual reasons. **The 65 threshold and the gates are fixed inputs to ranking; no code path relaxes them based on how many stories qualified.** A test asserts this: a fixture day with 2 qualifiers yields a 2-item shortlist plus reasons.
@@ -314,6 +315,8 @@ All of these live in `packages/core/src/config.ts` and can be overridden by envi
 | Task retry attempts                                 | (code)                                                             | 5                                             | Brief: max five attempts for retryable failures                                  |
 | LLM provider                                        | `LLM_PROVIDER`                                                     | `gemini` (dev); `anthropic` before production | ADR-016                                                                          |
 | Models per tier                                     | `GEMINI_MODEL_{TRIAGE,PRIMARY,ESCALATION}`, `ANTHROPIC_MODEL_{…}`  | See decision 2                                | Defaults live only in `packages/core/src/llm/config.ts`                          |
+
+Search credits: at these defaults one run can spend up to 24 Tavily credits (10 searches, 12 for 60 pages, 2 for 10 revisits), more than live development's limit of 20 a day on its own. Live development therefore runs 3 searches (at most 6 credits), and the weighted rotation covers every tier over days (ADR-042). A run checks its worst case before its first search.
 
 ### Known limitation: English-language discovery
 

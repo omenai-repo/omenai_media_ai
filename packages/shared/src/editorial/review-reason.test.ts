@@ -28,7 +28,17 @@ describe('reviewReason', () => {
         score: 16,
       }),
     ).toBe(
-      'Didn’t pass our editorial checks: a thin list rather than a story and no clear reason it matters to our readers.',
+      'Didn’t pass our editorial checks: a thin list rather than a story and no clear, evidence-based reason it matters to our readers.',
+    );
+    // The evidence and origin checks (ADR-041) read as plain words, never as proof.
+    expect(
+      reviewReason({
+        outcome: 'gate_hold',
+        failingChecks: ['evidence', 'single_origin', 'signal:routine_announcement'],
+        score: 72,
+      }),
+    ).toBe(
+      'Needs checking first: a quote for a key fact wasn’t found in its source, so far it rests only on the originator’s own announcement and a flagged concern (a routine announcement) wasn’t confirmed or ruled out.',
     );
     expect(reviewReason({ outcome: 'suppressed_repeat', failingChecks: [], score: null })).toMatch(
       /nothing new/,

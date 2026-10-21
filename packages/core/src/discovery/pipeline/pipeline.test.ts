@@ -259,6 +259,43 @@ describe('late evaluations', () => {
     expect(after.evaluation).toMatchObject({ outcome: 'qualified', runKey: DAY2_RUN });
   });
 
+  it('re-assesses a late evaluation stored before the evidence gates instead of ranking it', async () => {
+    const search = createFakeSearch(day1Hits);
+    const { llm, calls } = createLlm();
+    await runDiscoveryInline({
+      runKey: DAY1_RUN,
+      trigger: 'schedule',
+      owner: 'w',
+      deps: { llm, search: search.client, config, now: () => new Date('2026-10-15T05:00:00Z') },
+    });
+    const { Story } = await getModels();
+    const gele = await storyByHeadline(/Gele/);
+    // As stored by the earlier rules: no evidence gate among its results.
+    await Story.updateOne(
+      { _id: gele._id },
+      {
+        $set: {
+          'evaluation.outcome': 'deferred_late',
+          'gates.results': (gele.gates?.results ?? []).filter((r) => r.gate !== 'evidence'),
+          recommendations: [],
+        },
+      },
+    );
+
+    search.setHits([]);
+    const before = calls.filter((c) => c.operation === 'evaluate').length;
+    const day2 = await runDiscoveryInline({
+      runKey: DAY2_RUN,
+      trigger: 'schedule',
+      owner: 'w',
+      deps: { llm, search: search.client, config, now: () => new Date('2026-10-16T05:00:00Z') },
+    });
+    expect(calls.filter((c) => c.operation === 'evaluate').length).toBe(before + 1);
+    const after = await storyByHeadline(/Gele/);
+    expect(after.gates?.results.some((r) => r.gate === 'evidence')).toBe(true);
+    expect(day2?.shortlist.map((s) => s.storyId)).toEqual([String(gele._id)]);
+  });
+
   it('rejects a carried-over story that has gone stale', async () => {
     const search = createFakeSearch(day1Hits);
     const { llm } = createLlm();

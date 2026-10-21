@@ -40,6 +40,23 @@ describe('deriveShortfallReasons', () => {
     });
   });
 
+  it('accounts for work that aged out of the backlog before it could be processed', () => {
+    const reasons = deriveShortfallReasons(
+      {
+        ...emptyFunnel(),
+        evaluated: 6,
+        qualified: 2,
+        expiredBeforeExtract: 3,
+        expiredBeforeCluster: 1,
+        expiredBeforeEvaluation: 2,
+      },
+      5,
+    );
+    const expired = reasons.find((r) => r.code === 'expired_unprocessed');
+    expect(expired?.count).toBe(6);
+    expect(expired?.message).toMatch(/3 before reading, 1 before grouping, 2 before assessment/);
+  });
+
   it('reports insufficient candidates when too few reached evaluation', () => {
     const reasons = deriveShortfallReasons({ ...emptyFunnel(), evaluated: 2, qualified: 1 }, 5);
     expect(reasons.map((r) => r.code)).toContain('insufficient_candidates');

@@ -391,9 +391,61 @@ _Last updated: 2026-10-20_
   - **Tests:** the plan tests cover rank order for every edition from 2 to 9 stories, the alternating sides, and that no column is ever left alone.
   - **Known, not changed:** at 768–1023 px the ranked rows (story 06 on) squeeze the headline into a column of about 170 px. This was the same before the change.
 
+- **Playbook compliance corrections (2026-10-20).** ADR-041 and ADR-042, from the audit below. Offline only: fixtures and deterministic tests, no model, search, Atlas or Trigger.dev calls. Evidence is in VERIFICATION.md.
+  - **Evidence gates (ADR-041):**
+    - Each evaluation lists up to four key claims with exact quotes. They are checked against the shown text by the shared statement checks, and stored as `no_defect_found` and so on, never "verified".
+    - The editorial test and any exception must rest on claims that passed.
+    - Hold when no source is rated primary, reputable or specialist, or when a key claim fails its checks or rests on weak sources.
+    - An angle is required.
+    - Triage signals must be confirmed or dismissed.
+    - A single primary source is judged on its merits: its own facts pass, while a bare announcement is held as a lead (action: research), as is significance resting only on its account of itself.
+    - Every check only lowers an outcome. A pass means no known defect was found, never that a claim is true.
+  - **Fair intake (ADR-042):**
+    - Caps unchanged; over-cap work waits in a backlog limited by the freshness window, and expiries are counted.
+    - Oldest batch first, then the queries take turns. Article counts aren't used.
+    - A failed assessment gets one retry.
+    - Each run records the thresholds, caps and models it used.
+  - **Rotation and budget (ADR-042):**
+    - A weighted 10-slot tier cycle gives every tier its exact share over any 10 days, at any query count.
+    - Queries are tagged by pillar; 18 draft additions await approval.
+    - Worst-case search credits per run are checked before the first search and shown in `env:check`.
+    - The live-dev query count is unchanged.
+
+## Playbook discrepancies (audit 2026-10-20)
+
+A read-only audit compared discovery and ranking against the playbook (v1.0). The corrections are ADR-041 and ADR-042. The weights, thresholds, the rule that gates beat scores, no padding, and human control all match.
+
+These mismatches were confirmed in code and pinned by Stage 0 fixture tests (`shared/editorial/audit-stage0.test.ts`, `core/discovery/pipeline/audit-stage0.test.ts`):
+
+1. **Sources.** The source-quality judgement was never used. Any URL with a publisher passed (§8, §10 step 3).
+2. **Editorial test.** It was checked by length only: a padded generic answer passed (§2).
+3. **Exceptions.** An exception passed on length alone (60+ characters). Triage's exclusion signals never reached the evaluator (§5).
+4. **Angle.** An empty angle could qualify (§8: the 65–79 band needs "a plausible angle").
+5. **Critical issues.** The prompt narrowed "key claims cannot be verified" to "a central claim contradicted or resting on rumour" (§5).
+6. **Intake caps.**
+   - Extraction overflow was dropped for good.
+   - Clustering overflow in a completed run was never clustered.
+   - Search scores were compared across queries.
+   - Evaluation order favoured stories with more articles, which starves single-source stories (§3, originality).
+   - A failed evaluation was never retried.
+7. **Rotation.** At 3 queries a day, Tier 1 only. At 5, never Tiers 3–5. Live-dev runs so far searched Africa only, so L18 isn't representative (§3).
+8. **Registry.** About 20 of the 37 queries are art; several pillar areas had no query (§4, §13).
+9. **Plan and code differ.** Clustering pre-groups by title only; IMPLEMENTATION_PLAN.md also says entity and date overlap.
+10. **Audit trail.** Runs didn't record the thresholds or caps they used (§10).
+
+Deferred and recorded, not changed in this work:
+
+- rapid response kept separate from routine discovery
+- the freshness bypass when the model labels a story evergreen
+- the repeat-detection window
+- per-story tokenism and repeat flags
+- grounding for people to approach
+- decision states and the 30/90-day reports
+- model configuration
+
 ## In progress
 
-- Nothing mid-edit. Lint, typecheck, tests and build pass 16/16 after the secondary story layout fix (2026-10-20). The format check flags only `apps/worker/.mcp.json`, a committed file this work didn't touch (see Next action). Changes are uncommitted, awaiting the product owner's review.
+- Nothing mid-edit. After the playbook corrections (ADR-041, ADR-042), a full check with no cache passes lint, typecheck, tests and build, 16 of 16. The format check flags only `apps/worker/.mcp.json`, a committed file this work didn't touch (see Next action). Changes are uncommitted, awaiting the product owner's review.
 
 ## Blockers / external setup needed
 
@@ -463,14 +515,19 @@ _Last updated: 2026-10-20_
 ## Next action
 
 1. **Review the redesign** (ADR-040) in the browser, against the approved canvas. Known gaps, by decision or for want of data: no Story Review previous/next, no "saved by" on edition cards, no Operations search or filters, the citation popover doesn't drive the sidebar's evidence card, and Studio on phones keeps disclosures instead of a bottom toolbar.
-2. **Product owner decisions:**
+2. **Playbook corrections (ADR-041, ADR-042):**
+   - Review the 18 draft discovery queries (`DRAFT_DISCOVERY_QUERIES` in `core/discovery/sources.ts`). Approved ones move into `DISCOVERY_QUERIES`; until then they are never searched.
+   - Decide whether stories with no independent source should have their confidence capped at "medium". This was proposed and not built.
+   - Approve, or not, one bounded live evaluation of the new evidence gates: does the model supply quotes the checks can find, and how often are stories held? Proposed: re-assess 2–3 stored `omenai_live_dev` stories, at most 6 Gemini calls (each may need one repair round) and no Tavily. It needs a small script that doesn't exist yet; it would be shown to you before anything runs.
+   - Production's `SEARCH_DAILY_CREDIT_LIMIT`: a run at the code defaults can use up to 24 credits.
+3. **Product owner decisions:**
    - Switch LinkedIn drafts to low reasoning? (Samples and timings in VERIFICATION.md.)
    - Approve, or not, the end-to-end checks (at most 3 calls): one LinkedIn draft through the real Trigger.dev worker, watched in the Studio preview, and one chat question with the real model's bursts. This reactivates the labelled automation editor and adds one draft version to `omenai_live_dev`.
    - Further live evaluation of the evidence checks on other stories (the approved chat-evaluation budget is used up). Proposed: the eight chat cases on two more stories in other domains, at most 24 Gemini calls, no Tavily.
-3. **Still pending from 2026-10-16:**
+4. **Still pending from 2026-10-16:**
    - Decide on `apps/worker/.mcp.json`: run Prettier on it, or add it to `.prettierignore`.
-   - The editorial review of the live shortlist (L18).
-4. **Running processes:** a `next dev` on port 3000 was already running during this work and was left alone. Start `trigger dev` before live work (LIVE_DEVELOPMENT.md).
+   - The editorial review of the live shortlist (L18). Note: the live runs so far searched Tier 1 only (3 queries a day under the old allocation), so L18 isn't representative.
+5. **Running processes:** a `next dev` on port 3000 was already running during this work and was left alone. Start `trigger dev` before live work (LIVE_DEVELOPMENT.md).
 
 ## Schedule (target Nov 1)
 

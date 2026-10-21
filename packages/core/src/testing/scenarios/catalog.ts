@@ -63,7 +63,7 @@ export interface ScenarioEdition {
   assessedSoFar?: number;
 }
 
-const editorialTest = (answer: string) => ({ canAnswer: true, answer });
+const editorialTest = (answer: string) => ({ canAnswer: true, answer, supportedBy: [1] });
 
 // ── Today: still being prepared ──────────────────────────────────────────────
 
@@ -400,9 +400,10 @@ const yesterday: ScenarioEdition = {
         },
       ],
       evaluation: {
-        // Deliberately sparse: optional fields the assessment left empty.
+        // Deliberately sparse: optional fields the assessment left empty. The angle is required to
+        // qualify (ADR-041), so it is short rather than missing.
         whyNow: '',
-        angle: '',
+        angle: 'Who keeps the doors?',
         primaryPillar: 'places_architecture_living',
         subcategories: ['heritage_memory_preservation'],
         crossCuttingTags: [],
@@ -798,6 +799,7 @@ const threeDaysAgo: ScenarioEdition = {
             id: 'celebrity_gossip_or_virality',
             evidence: 'A viral celebrity visit with no cultural question.',
             exception: null,
+            supportedBy: [],
           },
         ],
         ...withScores(scores(3)),
@@ -829,7 +831,12 @@ const fourDaysAgo: ScenarioEdition = {
       ],
       evaluation: {
         exclusions: [
-          { id: 'thin_listicle_seo', evidence: 'Twelve one-line entries.', exception: null },
+          {
+            id: 'thin_listicle_seo',
+            evidence: 'Twelve one-line entries.',
+            exception: null,
+            supportedBy: [],
+          },
         ],
         ...withScores(scores(3)),
       },
@@ -858,6 +865,7 @@ const fourDaysAgo: ScenarioEdition = {
             id: 'generic_luxury_promotion',
             evidence: 'Brand-supplied gala coverage.',
             exception: null,
+            supportedBy: [],
           },
         ],
         ...withScores(scores(4)),
@@ -975,7 +983,12 @@ export const ON_DEMAND_EDITION: ScenarioEdition = {
       ],
       evaluation: {
         exclusions: [
-          { id: 'thin_listicle_seo', evidence: 'Ten one-line entries.', exception: null },
+          {
+            id: 'thin_listicle_seo',
+            evidence: 'Ten one-line entries.',
+            exception: null,
+            supportedBy: [],
+          },
         ],
         ...withScores(scores(3)),
       },

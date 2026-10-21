@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import { ConfigError } from '../config/env.js';
 import { assertDatabaseForRuntime, RUNTIMES, type Runtime } from '../config/runtime.js';
+import { searchBudgetFit } from '../discovery/budget.js';
 import { readDiscoveryConfig } from '../discovery/config.js';
 import { DEFAULT_MODELS } from '../llm/config.js';
 
@@ -182,10 +183,20 @@ console.log(
 console.log(
   `Daily limits       AI calls ${worker.AI_DAILY_CALL_LIMIT ?? '(none)'} · search credits ${worker.SEARCH_DAILY_CREDIT_LIMIT ?? '(none)'} · web the same: ${CHAT_MODEL_VARIABLES.every((name) => (web[name] ?? '') === (worker[name] ?? '')) ? 'yes' : 'NO'}`,
 );
-if (discovery)
+if (discovery) {
   console.log(
     `Discovery limits   queries ${discovery.maxQueries} × ${discovery.resultsPerQuery} results · extract ≤${discovery.maxExtract} · revisits ≤${discovery.maxRevisits} · assessments ≤${discovery.maxEvaluations} · escalations ≤${discovery.maxEscalations} · triage batch ${discovery.triageBatchSize} · threshold ${discovery.shortlistThreshold}`,
   );
+  const limit = /^[1-9]\d*$/.test(worker.SEARCH_DAILY_CREDIT_LIMIT ?? '')
+    ? Number(worker.SEARCH_DAILY_CREDIT_LIMIT)
+    : null;
+  const fit = searchBudgetFit(discovery, limit);
+  console.log(`Search per run     ${fit.note}`);
+  if (fit.fits === false)
+    notes.push(
+      'A discovery run at these limits could pass the daily search-credit limit; lower the discovery limits or raise SEARCH_DAILY_CREDIT_LIMIT before a live run.',
+    );
+}
 if (web.TAVILY_API_KEY) fail('web: TAVILY_API_KEY is set; searching happens in the worker only.');
 if (runtime === 'live-dev' && web.ANTHROPIC_API_KEY)
   fail('web: ANTHROPIC_API_KEY is set; live development uses Gemini only.');

@@ -41,6 +41,8 @@ const workflowRunSchema = new Schema(
     /** Per-stage counts, set once when a stage completes (so retries never double-count). */
     stageStats: { type: Schema.Types.Mixed, default: {} },
     escalationsUsed: { type: Number, default: 0 },
+    /** The thresholds, caps and models this run used, recorded once at its start (audit trail). */
+    config: { type: Schema.Types.Mixed, default: null },
     candidateStoryIds: { type: [Schema.Types.ObjectId], default: [] },
     funnel: { type: Schema.Types.Mixed, default: null },
     outcomes: {
