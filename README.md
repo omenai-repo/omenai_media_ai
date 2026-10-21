@@ -5,9 +5,9 @@ stories, scored against the CEO's editorial playbook, with a research assistant 
 studio for invited editors. Nothing is published automatically.
 
 A TypeScript monorepo managed with [pnpm workspaces](https://pnpm.io/workspaces) and
-[Turborepo](https://turborepo.com). Project records: `CLAUDE.md` (conventions),
-`docs/IMPLEMENTATION_PLAN.md`, `docs/ARCHITECTURE_DECISIONS.md`, `docs/PROGRESS.md`,
-`docs/VERIFICATION.md`.
+[Turborepo](https://turborepo.com). Project records (conventions, plan, decisions, progress and
+verification) are kept locally in `CLAUDE.md` and `docs/`, outside the repository: this README is
+the only Markdown file it tracks.
 
 ```text
 apps/
@@ -42,7 +42,7 @@ pnpm --filter @repo/worker dev:trigger           # background worker (separate t
 pnpm dev
 ```
 
-Local development runs against real services by default: `OMENAI_RUNTIME=live-dev`, the Atlas `omenai_live_dev` database, Gemini, Tavily and the Trigger.dev development worker, within hard daily usage limits. See [docs/LIVE_DEVELOPMENT.md](docs/LIVE_DEVELOPMENT.md).
+Local development runs against real services by default: `OMENAI_RUNTIME=live-dev`, the Atlas `omenai_live_dev` database, Gemini, Tavily and the Trigger.dev development worker, within hard daily usage limits. The details are in the local `docs/LIVE_DEVELOPMENT.md` (not in the repository).
 
 Open the printed invitation link and set a password. Later users are invited by an owner from the
 app. `pnpm owner:invite` refuses to run once an active owner exists, and
@@ -168,5 +168,5 @@ as `"catalog:"`.
   very recently (its `minimumReleaseAge` policy), which protects against compromised releases.
 - ESLint stays on v9 because the plugins used by `eslint-config-next` 16.4 do not support v10 yet.
   TypeScript stays on 6.0 because `typescript-eslint` supports versions below 6.1.
-- `AGENTS.md` is maintained by Turborepo for AI coding agents. Set `"agentGuidance": false` in
-  `turbo.json` to opt out.
+- `AGENTS.md` is maintained locally by Turborepo for AI coding agents and isn't tracked. Set
+  `"agentGuidance": false` in `turbo.json` to opt out.

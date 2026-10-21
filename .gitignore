@@ -24,6 +24,10 @@ coverage/
 .env.*
 *.env
 
+# Markdown: only README.md is tracked. Planning records, docs and agent notes stay local.
+*.md
+!README.md
+
 # Logs
 *.log
 
