@@ -111,6 +111,14 @@ from `copy.ts` there. Change wording in that file rather than in individual page
 Background tasks run with the Trigger.dev CLI: `npx trigger.dev@latest login` once, then
 `pnpm --filter @repo/worker dev:trigger` (reads `apps/worker/.env`).
 
+Production worker deploys are built by Trigger.dev's GitHub app on every push to `main`, from a
+fresh clone. The worker imports `@repo/core` and `@repo/shared` from their build output (`dist/`,
+which isn't in the repository), so the project's GitHub build settings in Trigger.dev need the
+pre-build command `pnpm turbo run build --filter="@repo/worker^..."`. Without it the build stops
+at `Could not resolve "@repo/core"` and the deployment fails. A manual deploy from your machine
+needs the same build first, from a clean checkout:
+`pnpm turbo run build --filter="@repo/worker^..." && pnpm --filter @repo/worker run deploy -- --env prod`.
+
 The LLM provider is chosen by `LLM_PROVIDER` in the worker env: `gemini` for development and
 `anthropic` for production. To check the configured provider against the real API (this spends
 quota):
