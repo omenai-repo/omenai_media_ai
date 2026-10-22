@@ -17,7 +17,7 @@ import { startTestDatabase, type TestDatabase } from '../testing/index.js';
 import { readDiscoveryConfig } from './config.js';
 import type { DiscoveryDeps } from './pipeline/context.js';
 import { EVALUATION_SYSTEM_PROMPT, TRIAGE_SYSTEM_PROMPT } from './prompts.js';
-import { applyRecovery, planRecovery, type RecoveryTarget } from './recovery.js';
+import { applyRecovery, planRecovery, reconcileRecovery, type RecoveryTarget } from './recovery.js';
 
 let db: TestDatabase;
 beforeAll(async () => {
@@ -463,6 +463,32 @@ describe('run recovery', () => {
     expect(again.requests).toHaveLength(0);
   });
 
+  it('reconciles stories against their run, and reports any mismatch and duplicate', async () => {
+    const ids = await seed(['failed', 'pending_fallback', 'skipped']);
+    const { deps, budget } = programmable();
+    await applyRecovery({ target, deps, budget: budget(), pause: noPause });
+    const clean = await reconcileRecovery(target);
+    expect(clean.mismatches).toEqual([]);
+    expect(clean.duplicates).toEqual({ urls: 0, articlesInSeveralStories: 0 });
+    expect(clean.groups).toMatchObject({
+      assessed: 2,
+      editor_skipped: 1,
+      incident_failed: 0,
+      pending: 0,
+    });
+    expect(clean.tasks).toMatchObject({ 'succeeded (recovery)': 2 });
+    expect(clean.counts).toMatchObject({ assessed: 2, remainingEligible: 0 });
+    // A run whose record disagrees with a story is reported, not silently accepted.
+    const { WorkflowRun } = await getModels();
+    await WorkflowRun.updateOne(
+      { runKey: RUN, 'outcomes.storyId': ids.failed },
+      { $set: { 'outcomes.$.outcome': 'deferred_late' } },
+    );
+    expect((await reconcileRecovery(target)).mismatches).toEqual([
+      expect.objectContaining({ storyId: ids.failed, run: 'deferred_late' }),
+    ]);
+  });
+
   it('takes over a recovery whose process died, but never one that is still running', async () => {
     await seed(['failed']);
     const { WorkflowRun } = await getModels();
@@ -655,5 +681,14 @@ describe('run recovery', () => {
     expect(second.stories.map((s) => s.result)).toEqual(['assessed', 'assessed']);
     expect(rest.requests.map((r) => r.operation)).toEqual(['evaluate', 'evaluate']);
     expect(second.status).toBe('completed');
+    // The totals cover every invocation, not just the last one.
+    const { WorkflowRun } = await getModels();
+    expect((await WorkflowRun.findOne({ runKey: RUN }).lean())?.recovery?.counts).toMatchObject({
+      eligibleAtStart: 3,
+      assessed: 3,
+      failed: 0,
+      remainingEligible: 0,
+      remainingTriage: 0,
+    });
   });
 });

@@ -383,12 +383,129 @@ async function claim(target: RecoveryTarget, now: Date): Promise<boolean> {
   return resumed.modifiedCount === 1;
 }
 
+/**
+ * The recovery's totals across every invocation, from the records it leaves: its task attempts
+ * (tagged `recovery:<id>`), the articles it triaged and what is still left. `thisRun` is the
+ * latest invocation's own work.
+ */
+async function recordedCounts(
+  target: RecoveryTarget,
+  thisRun: Record<string, unknown> | null,
+): Promise<Record<string, unknown>> {
+  const { Task, SourceArticle, WorkflowRun } = await getModels();
+  const run = await WorkflowRun.findOne({ runKey: target.runKey }, { recovery: 1 }).lean();
+  const tagged = {
+    runKey: target.runKey,
+    kind: 'discovery.evaluate',
+    triggerRunId: `recovery:${target.id}`,
+  } as const;
+  const [assessed, failed, plan] = await Promise.all([
+    Task.countDocuments({ ...tagged, status: { $in: ['succeeded', 'skipped'] } }),
+    Task.countDocuments({ ...tagged, status: 'failed' }),
+    planRecovery(target),
+  ]);
+  const triaged = run?.recovery?.startedAt
+    ? await SourceArticle.countDocuments({
+        $or: [{ intakeRunKey: target.runKey }, { firstRunKey: target.runKey }],
+        'triage.model': { $ne: 'none' },
+        'triage.triagedAt': { $gte: run.recovery.startedAt },
+      })
+    : 0;
+  return {
+    eligibleAtStart: assessed + failed + plan.eligible.length,
+    assessed,
+    failed,
+    triaged,
+    remainingEligible: plan.eligible.length,
+    remainingTriage: plan.retriage.length,
+    ...(thisRun ? { thisRun } : {}),
+  };
+}
+
 async function heartbeat(target: RecoveryTarget, counts: Record<string, unknown>, now: Date) {
   const { WorkflowRun } = await getModels();
   await WorkflowRun.updateOne(
     { runKey: target.runKey, 'recovery.id': target.id },
-    { $set: { 'recovery.updatedAt': now, 'recovery.counts': counts } },
+    {
+      $set: { 'recovery.updatedAt': now, 'recovery.counts': await recordedCounts(target, counts) },
+    },
   );
+}
+
+export interface RecoveryReconciliation {
+  runKey: string;
+  id: string;
+  recoveryStatus: string | null;
+  groups: Record<RecoveryGroup, number>;
+  counts: Record<string, unknown>;
+  /** Stories whose stored outcome differs from the run's record of it (should be none). */
+  mismatches: Array<{ storyId: string; story: string | null; run: string | null }>;
+  shortlist: number;
+  tasks: Record<string, number>;
+  articles: RecoveryPlan['articles'];
+  duplicates: { urls: number; articlesInSeveralStories: number };
+}
+
+/**
+ * Read-only reconciliation of a recovery against the stored records: every candidate's group,
+ * each story's outcome against the run's, the task attempts it made, and duplicates. Writes only
+ * the run's recovery totals, recomputed from those records, and only when no recovery is running.
+ */
+export async function reconcileRecovery(target: RecoveryTarget): Promise<RecoveryReconciliation> {
+  const { Story, SourceArticle, WorkflowRun, Task } = await getModels();
+  const [plan, run] = await Promise.all([
+    planRecovery(target),
+    WorkflowRun.findOne({ runKey: target.runKey }).lean(),
+  ]);
+  const stories = await Story.find(
+    { _id: { $in: plan.stories.map((s) => new Types.ObjectId(s.storyId)) } },
+    { evaluation: 1, sourceArticleIds: 1 },
+  ).lean();
+  const recorded = new Map(
+    (run?.outcomes ?? []).map((o) => [String(o.storyId), String(o.outcome)]),
+  );
+  const mismatches = stories.flatMap((story) => {
+    const stored = story.evaluation?.outcome ?? null;
+    const ran = recorded.get(String(story._id)) ?? null;
+    return stored === ran ? [] : [{ storyId: String(story._id), story: stored, run: ran }];
+  });
+  const tasks: Record<string, number> = {};
+  for (const task of await Task.find(
+    { runKey: target.runKey },
+    { status: 1, triggerRunId: 1 },
+  ).lean()) {
+    const label = `${task.status}${task.triggerRunId === `recovery:${target.id}` ? ' (recovery)' : ''}`;
+    tasks[label] = (tasks[label] ?? 0) + 1;
+  }
+  const [urls, shared] = await Promise.all([
+    SourceArticle.aggregate<{ n: number }>([
+      { $group: { _id: '$canonicalUrl', n: { $sum: 1 } } },
+      { $match: { n: { $gt: 1 } } },
+    ]),
+    Story.aggregate<{ n: number }>([
+      { $unwind: '$sourceArticleIds' },
+      { $group: { _id: '$sourceArticleIds', n: { $sum: 1 } } },
+      { $match: { n: { $gt: 1 } } },
+    ]),
+  ]);
+  const counts = await recordedCounts(target, null);
+  if (run?.recovery?.id === target.id && run.recovery.status !== 'running')
+    await WorkflowRun.updateOne(
+      { runKey: target.runKey, 'recovery.id': target.id, 'recovery.status': { $ne: 'running' } },
+      { $set: { 'recovery.counts': counts } },
+    );
+  return {
+    runKey: target.runKey,
+    id: target.id,
+    recoveryStatus: run?.recovery?.status ?? null,
+    groups: plan.counts,
+    counts,
+    mismatches,
+    shortlist: run?.shortlist?.length ?? 0,
+    tasks,
+    articles: plan.articles,
+    duplicates: { urls: urls.length, articlesInSeveralStories: shared.length },
+  };
 }
 
 function stopReason(error: unknown): string | null {
@@ -612,7 +729,7 @@ export async function applyRecovery(input: {
           'recovery.status': report.status,
           'recovery.updatedAt': now,
           'recovery.completedAt': report.status === 'completed' ? now : null,
-          'recovery.counts': { ...counts(), remainingEligible: after.eligible.length },
+          'recovery.counts': await recordedCounts(target, counts()),
           'recovery.note': report.stoppedBy,
         },
       },

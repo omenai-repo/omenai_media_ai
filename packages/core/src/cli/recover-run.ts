@@ -6,6 +6,8 @@
  *   probe    One assessment request per assessing tier with a tiny answer budget: proves the
  *            response schema compiles (a refused schema fails before any answer is written).
  *   apply    The recovery itself, refused unless the plan still has --expect-eligible stories.
+ *   reconcile  Read-only reconciliation against the stored records; recomputes only the run's
+ *            recovery totals. No model requests.
  *
  *   node dist/cli/recover-run.js --mode preview --run <runKey> --id <recovery id> \
  *     --env-file <file> --out <report.json> [--db omenai] [--ceiling 100] [--expect-eligible N]
@@ -27,6 +29,7 @@ import type { DiscoveryDeps } from '../discovery/pipeline/context.js';
 import {
   applyRecovery,
   planRecovery,
+  reconcileRecovery,
   type RecoveryPlan,
   type RecoveryTarget,
 } from '../discovery/recovery.js';
@@ -51,8 +54,8 @@ const mode = arg('mode');
 const runKey = arg('run');
 const ceiling = Number(arg('ceiling', '100'));
 const out = arg('out');
-if (!['preview', 'probe', 'apply'].includes(mode))
-  throw new Error('--mode is preview, probe or apply');
+if (!['preview', 'probe', 'apply', 'reconcile'].includes(mode))
+  throw new Error('--mode is preview, probe, apply or reconcile');
 if (!Number.isInteger(ceiling) || ceiling < 1) throw new Error('--ceiling must be a whole number');
 
 /** Only these two values are taken from the file; nothing else in it is loaded. */
@@ -123,7 +126,7 @@ globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => 
     entry.refused = 'host';
     throw new Error(`Refused: a request to ${host}. Recovery talks to Anthropic only.`);
   }
-  if (mode === 'preview') {
+  if (mode === 'preview' || mode === 'reconcile') {
     entry.refused = 'preview';
     throw new Error('Refused: preview sends no model requests.');
   }
@@ -322,6 +325,11 @@ async function main() {
     const after = await planRecovery(target);
     report.after = summary(after);
     report.manifestAfter = after.stories;
+  }
+
+  if (mode === 'reconcile') {
+    report.reconciliation = await reconcileRecovery(target);
+    console.log(JSON.stringify({ reconciliation: report.reconciliation }, null, 1));
   }
 
   report.requests = requests;
