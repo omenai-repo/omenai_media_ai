@@ -16,6 +16,7 @@ import {
   getRun,
   getSearchClient,
   isPermanentError,
+  isRequestConfigurationError,
   markEvaluationFailed,
   MAX_RUN_ATTEMPTS,
   objectId,
@@ -99,7 +100,9 @@ export const discoveryEvaluate = task({
       const final = isPermanent(error) || ctx.attempt.number >= EVALUATE_MAX_ATTEMPTS;
       await failTask(key, message, final);
       if (final) {
-        await markEvaluationFailed(runKey, storyId, message);
+        await markEvaluationFailed(runKey, storyId, message, {
+          countRun: !isRequestConfigurationError(error),
+        });
         throw new AbortTaskRunError(message);
       }
       throw error;

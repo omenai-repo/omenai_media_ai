@@ -190,6 +190,65 @@ describe('operations overview', () => {
     expect(overview.usage.pricesVerifiedOn).toBe('2026-10-16');
   });
 
+  it('tells a refused request (needs a fix) from a failure the next edition retries, never as an outage', async () => {
+    const { WorkflowRun, Story } = await getModels();
+    const now = new Date();
+    const story = (failedRuns: number, error: string) =>
+      Story.create({
+        headline: `Failed ${failedRuns} ${error.slice(0, 20)}`,
+        firstSeenRunKey: 'daily-discovery:2026-10-22',
+        lastCandidateRunKey: 'daily-discovery:2026-10-22',
+        evaluation: {
+          status: 'failed',
+          runKey: 'daily-discovery:2026-10-22',
+          outcome: 'evaluation_failed',
+          error,
+          failedRuns,
+        },
+      });
+    const grammar =
+      'Anthropic API error 400: Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"The compiled grammar is too large"}}';
+    const refused = await story(0, grammar);
+    const transient = await story(1, 'unavailable: Anthropic API error 529 overloaded');
+    const gaveUp = await story(
+      2,
+      'invalid_output: output failed validation after a repair attempt',
+    );
+    await WorkflowRun.create({
+      runKey: 'daily-discovery:2026-10-22',
+      trigger: 'schedule',
+      status: 'completed',
+      completedAt: now,
+      createdAt: new Date(Date.now() + 60_000),
+      outcomes: [refused, transient, gaveUp].map((s) => ({
+        storyId: s._id,
+        outcome: 'evaluation_failed',
+        detail: s.evaluation?.error ?? '',
+      })),
+    });
+    const attention = (await getOperationsOverview(now)).attention;
+    expect(attention.find((a) => a.kind === 'assessment_blocked')).toMatchObject({
+      automatic: false,
+      count: 1,
+    });
+    expect(attention.find((a) => a.kind === 'assessment_blocked')?.detail).toContain(
+      'compiled grammar',
+    );
+    expect(attention.find((a) => a.kind === 'assessment_retry_due')).toMatchObject({
+      automatic: true,
+      count: 1,
+    });
+    expect(attention.find((a) => a.kind === 'assessment_failed')).toMatchObject({
+      automatic: false,
+      count: 1,
+    });
+
+    // Once assessed (by the next edition or a recovery), they no longer count.
+    await Story.updateMany({}, { $set: { 'evaluation.status': 'evaluated' } });
+    const kinds = (await getOperationsOverview(now)).attention.map((a) => a.kind);
+    expect(kinds.filter((k) => k.startsWith('assessment_'))).toEqual([]);
+  });
+
   it('keeps automatic retries apart from what needs someone, and hands over when retrying stops', async () => {
     const now = new Date('2026-10-19T12:00:00Z');
     const { Task, Story, WorkflowRun } = await getModels();

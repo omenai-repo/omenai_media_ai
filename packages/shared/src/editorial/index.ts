@@ -1,4 +1,5 @@
 export * from './drafts.js';
+export * from './failures.js';
 export * from './gates.js';
 export * from './images.js';
 export * from './progress.js';

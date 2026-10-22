@@ -145,6 +145,28 @@ export function toRunSummary(run: WorkflowRunDoc): RunSummaryDto {
     evaluationFailures: funnel.evaluationFailures ?? 0,
     shortfallReasons: (run.shortfallReasons ?? []) as ShortfallReason[],
     progress: null,
+    recovery: toRunRecovery(run),
+  };
+}
+
+function toRunRecovery(run: WorkflowRunDoc): RunSummaryDto['recovery'] {
+  const recovery = run.recovery;
+  if (!recovery) return null;
+  const counts = (recovery.counts ?? {}) as {
+    assessed?: number;
+    eligibleAtStart?: number;
+    remainingEligible?: number;
+  };
+  return {
+    status: recovery.status,
+    startedAt: iso(recovery.startedAt),
+    updatedAt: iso(recovery.updatedAt),
+    completedAt: iso(recovery.completedAt),
+    assessed: counts.assessed ?? 0,
+    remaining:
+      counts.remainingEligible ??
+      Math.max(0, (counts.eligibleAtStart ?? 0) - (counts.assessed ?? 0)),
+    note: recovery.note ?? null,
   };
 }
 

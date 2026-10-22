@@ -35,6 +35,8 @@ export interface EvaluateResult {
   total: number | null;
   escalated: boolean;
   skipped: boolean;
+  /** Recovery only: the story stopped matching its guard before the write, so nothing was saved. */
+  conflict?: boolean;
 }
 
 function date(d: Date | null | undefined): string {
@@ -196,6 +198,13 @@ export async function evaluateStory(input: {
   runKey: string;
   storyId: string;
   deps: DiscoveryDeps;
+  /**
+   * Recovery of a run whose candidate set has closed (ADR-046): the assessment counts for that
+   * run, which is ranked again afterwards, instead of being deferred to the next one. The result
+   * is written only while the story still matches `guard`, so a decision or change made in the
+   * meantime is never overwritten.
+   */
+  recovery?: { guard: Record<string, unknown> };
 }): Promise<EvaluateResult> {
   const { Story, SourceArticle } = await getModels();
   const { deps } = input;
@@ -293,7 +302,7 @@ export async function evaluateStory(input: {
       .map((d) => ({ id: d.signal.trim() as ExclusionId, reason: d.reason })),
   });
   const run = await getRun(input.runKey);
-  const late = Boolean(run?.candidateSetClosedAt);
+  const late = !input.recovery && Boolean(run?.candidateSetClosedAt);
   const outcome: CandidateOutcome = late
     ? 'deferred_late'
     : classifyEvaluated(gates, total, config.shortlistThreshold);
@@ -302,8 +311,8 @@ export async function evaluateStory(input: {
     shortlist: config.shortlistThreshold,
   });
 
-  await Story.updateOne(
-    { _id: storyId },
+  const written = await Story.updateOne(
+    { _id: storyId, ...(input.recovery?.guard ?? {}) },
     {
       $set: {
         headline: out.headline,
@@ -352,6 +361,9 @@ export async function evaluateStory(input: {
     },
   );
 
+  if (input.recovery && written.matchedCount === 0)
+    return { outcome, total, escalated, skipped: false, conflict: true };
+
   // Record the model's source-quality judgement on the articles it saw (by label, never by URL).
   for (const { ref, quality } of out.sourceQuality) {
     const article = articles[Number(ref.slice(1)) - 1];
@@ -365,12 +377,15 @@ export async function evaluateStory(input: {
 /**
  * Marks an evaluation failed after its retries are exhausted. The first such failure is retried
  * once in the next run; a second is final. Idempotent per run: a repeated call for the same run
- * doesn't count twice.
+ * doesn't count twice. A failure of the request's construction or configuration (`countRun:
+ * false`) isn't the story's: it is recorded but not counted, so the story keeps its retry and
+ * stays available to a recovery once the request is fixed (ADR-046).
  */
 export async function markEvaluationFailed(
   runKey: string,
   storyId: string,
   message: string,
+  options: { countRun?: boolean } = {},
 ): Promise<void> {
   const { Story } = await getModels();
   await Story.updateOne(
@@ -385,7 +400,7 @@ export async function markEvaluationFailed(
         'evaluation.outcome': 'evaluation_failed',
         'evaluation.error': message.slice(0, 1_000),
       },
-      $inc: { 'evaluation.failedRuns': 1 },
+      ...(options.countRun === false ? {} : { $inc: { 'evaluation.failedRuns': 1 } }),
     },
   );
 }

@@ -2,6 +2,8 @@ import { CANDIDATE_OUTCOMES, SHORTFALL_CODES } from '@repo/shared';
 import { Schema, Types, type Connection, type InferSchemaType, type Model } from 'mongoose';
 
 export const RUN_STATUSES = ['queued', 'running', 'completed', 'failed'] as const;
+/** `incomplete`: recovery stopped with work left (a budget or a failure); it can be resumed. */
+export const RECOVERY_STATUSES = ['running', 'completed', 'incomplete'] as const;
 export const RUN_STAGES = [
   'queued',
   'discover',
@@ -85,6 +87,28 @@ const workflowRunSchema = new Schema(
       default: [],
     },
     triggerRunId: { type: String, default: null },
+    /**
+     * A targeted recovery of this run's assessments after a failure that wasn't the stories' own
+     * (ADR-046). The run keeps its key, errors and stage statistics; `before` keeps the outcome
+     * counts it had, `counts` what recovery has done so far. Null for runs never recovered.
+     */
+    recovery: {
+      type: new Schema(
+        {
+          id: { type: String, required: true },
+          status: { type: String, enum: RECOVERY_STATUSES, required: true },
+          reason: { type: String, default: '' },
+          startedAt: { type: Date, required: true },
+          updatedAt: { type: Date, required: true },
+          completedAt: { type: Date, default: null },
+          before: { type: Schema.Types.Mixed, default: null },
+          counts: { type: Schema.Types.Mixed, default: null },
+          note: { type: String, default: null },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
   },
   { collection: 'workflowRuns', timestamps: true },
 );

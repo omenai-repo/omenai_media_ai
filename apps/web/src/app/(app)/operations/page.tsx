@@ -29,6 +29,7 @@ import {
   attentionAction,
   attentionLink,
   attentionTitle,
+  recoveryLabel,
   editionName,
   progressLine,
   retryProgress,
@@ -796,6 +797,11 @@ async function Operations() {
                     {run.status === 'completed' && run.sourceFailures > 0
                       ? `${run.sourceFailures} ${run.sourceFailures === 1 ? 'source' : 'sources'} unreadable`
                       : status.label}
+                    {run.recovery ? (
+                      <span className="block font-normal text-slate">
+                        {recoveryLabel(run.recovery)}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="text-[0.8125rem] text-ink tabular-nums">
                     {run.status === 'completed' ? `${run.shortlisted} recommended` : null}

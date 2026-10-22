@@ -64,7 +64,10 @@ describe('provider isolation', () => {
         (path) =>
           path === 'packages/core/src/llm/config.ts' ||
           // The env check prints and compares settings; it never calls a model.
-          path === 'packages/core/src/cli/check-env.ts',
+          path === 'packages/core/src/cli/check-env.ts' ||
+          // The run recovery pins its own process to production and Anthropic and removes the
+          // Gemini key before the factory reads them; its client still comes from getLlmClient.
+          path === 'packages/core/src/cli/recover-run.ts',
       ),
     ).toEqual([]);
   });

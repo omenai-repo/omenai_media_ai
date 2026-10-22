@@ -122,6 +122,20 @@ export interface RunSummaryDto {
   shortfallReasons: ShortfallReason[];
   /** Only for a run that hasn't finished. */
   progress: RunProgressDto | null;
+  /** A targeted recovery of the run's assessments, if one was made (ADR-046). */
+  recovery: RunRecoveryDto | null;
+}
+
+export interface RunRecoveryDto {
+  status: 'running' | 'completed' | 'incomplete';
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  /** Stories assessed by the recovery, and eligible ones it hasn't done yet. */
+  assessed: number;
+  remaining: number;
+  /** Why it stopped, when it stopped early. */
+  note: string | null;
 }
 
 export interface RunProgressDto {

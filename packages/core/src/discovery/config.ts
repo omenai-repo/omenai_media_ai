@@ -39,7 +39,9 @@ const schema = z.object({
   minCandidates: z.coerce.number().int().min(0).default(3),
   // Long enough to cover the longest stage between heartbeats.
   leaseMinutes: z.coerce.number().min(1).default(30),
-  triageBatchSize: z.coerce.number().int().min(1).max(20).default(8),
+  // Six, not eight: a failed batch is split rather than rewritten whole (ADR-046), and a smaller
+  // first batch keeps one overlong answer from costing the rest of the batch.
+  triageBatchSize: z.coerce.number().int().min(1).max(20).default(6),
   triageExcerptChars: z.coerce.number().int().min(200).default(1_500),
   evaluationExcerptChars: z.coerce.number().int().min(500).default(6_000),
   maxArticlesPerEvaluation: z.coerce.number().int().min(1).max(10).default(4),

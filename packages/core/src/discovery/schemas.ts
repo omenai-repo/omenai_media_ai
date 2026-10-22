@@ -26,13 +26,16 @@ const text = (max: number) => z.string().trim().min(1).max(max);
 const articleRef = z.string().regex(/^A\d+$/);
 const storyRef = z.string().regex(/^S\d+$/);
 
+/** Longest stored triage reason; a longer one is shortened by sentence before validation. */
+export const TRIAGE_REASON_MAX = 300;
+
 export const triageOutputSchema = z.object({
   articles: z
     .array(
       z.object({
         ref: articleRef,
         inScope: z.boolean().describe('Within Omenai’s cultural territory and worth a closer look'),
-        reason: text(300),
+        reason: text(TRIAGE_REASON_MAX).describe('One short sentence on why, under 200 characters'),
         eventSummary: z
           .string()
           .max(240)

@@ -24,3 +24,15 @@ export function isPermanentError(error: unknown): boolean {
   if (error instanceof z.ZodError) return true;
   return false;
 }
+
+/**
+ * Failures that can't be the item's own: a response schema the provider can't compile, a refused
+ * key, missing configuration. Every item fails the same way until the code or configuration is
+ * fixed, so such a failure is not counted against the item's own retries (ADR-046). Any other
+ * rejected request (`invalid_request`) still counts: it can come from the item itself, such as a
+ * prompt too long for the model.
+ */
+export function isRequestConfigurationError(error: unknown): boolean {
+  if (error instanceof ConfigError) return true;
+  return error instanceof LlmError && (error.kind === 'schema_rejected' || error.kind === 'auth');
+}

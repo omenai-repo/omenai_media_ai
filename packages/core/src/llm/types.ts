@@ -74,9 +74,24 @@ interface BaseRequest {
 
 export type TextRequest = BaseRequest;
 
+/**
+ * A deterministic, bounded clean-up of the parsed answer before it is validated, for prose the
+ * model may overrun (an explanation longer than its limit). It must never change a decision,
+ * an identifier or evidence, and returns a note for each change so the caller can record it.
+ */
+export type OutputNormalizer = (candidate: unknown) => { value: unknown; notes: string[] };
+
 export interface ObjectRequest<T> extends BaseRequest {
   /** Full contract; the response is always validated against it after parsing. */
   schema: z.ZodType<T>;
+  /** Applied to the parsed answer before validation (see `OutputNormalizer`). */
+  normalize?: OutputNormalizer;
+  /**
+   * Whether an answer that fails validation gets the repair round (default true). A caller that
+   * can split the work instead, such as a batch of articles, turns it off rather than have the
+   * whole batch written again.
+   */
+  repair?: boolean;
   /** Called when the answer didn't validate and a repair round is about to start. */
   onRepair?: () => void;
 }
@@ -117,6 +132,8 @@ export interface LlmResult<T> {
   model: string;
   usage: LlmUsage;
   timing?: CallTiming;
+  /** What the request's normalizer changed before validation (absent when nothing changed). */
+  normalized?: string[];
 }
 
 /** What an adapter receives: the model is resolved, the schema already provider-neutral JSON. */
@@ -172,6 +189,12 @@ export type LlmErrorKind =
   | 'unavailable'
   | 'auth'
   | 'invalid_request'
+  /**
+   * The provider couldn't compile the response schema into its decoding grammar (Anthropic's
+   * "compiled grammar is too large"). The request is built wrongly, not the service down: the same
+   * schema fails the same way every time, so it is never retried as it is.
+   */
+  | 'schema_rejected'
   | 'refusal'
   | 'safety_blocked'
   | 'truncated'

@@ -101,21 +101,21 @@ export interface FinalizeResult {
   shortfallReasons: ReturnType<typeof deriveShortfallReasons>;
 }
 
+type RunOutcome = { storyId: Types.ObjectId; outcome: CandidateOutcome; detail: string };
+
 /**
- * Closes the candidate set and finishes the run. Every candidate gets exactly one outcome;
- * only `qualified` stories are ranked; the threshold is a fixed input and is never relaxed when
- * few stories qualify. Unevaluated candidates are `deferred_late` and stay pending for the next run.
+ * Every candidate's outcome, the funnel and the ranked shortlist, from the stored evaluations
+ * (no model call), with each shortlisted story's recommendation recorded once per run. Only
+ * `qualified` stories are ranked; the threshold is a fixed input and is never relaxed when few
+ * stories qualify. Unevaluated candidates are `deferred_late` and stay pending for the next run.
  */
-export async function finalizeRun(input: {
-  runKey: string;
-  owner: string;
-  deps: DiscoveryDeps;
-}): Promise<FinalizeResult> {
-  const { runKey, owner, deps } = input;
+async function rankRun(
+  runKey: string,
+  deps: DiscoveryDeps,
+  now: Date,
+): Promise<FinalizeResult & { outcomes: RunOutcome[]; shortlistIds: Types.ObjectId[] }> {
   const { config } = deps;
   const { Story } = await getModels();
-  const now = deps.now();
-  await closeCandidateSet(runKey, now);
   const run = await getRun(runKey);
   const stats = (run?.stageStats ?? {}) as {
     discover?: DiscoverStats;
@@ -126,8 +126,7 @@ export async function finalizeRun(input: {
   };
 
   const candidates = await Story.find({ lastCandidateRunKey: runKey }).lean();
-  const outcomes: Array<{ storyId: Types.ObjectId; outcome: CandidateOutcome; detail: string }> =
-    [];
+  const outcomes: RunOutcome[] = [];
   const rankable: Array<{
     id: string;
     outcome: CandidateOutcome;
@@ -265,18 +264,67 @@ export async function finalizeRun(input: {
     expiredBeforeEvaluation: stats.cluster?.expiredStories ?? 0,
   };
   const shortfallReasons = deriveShortfallReasons(funnel, config.shortlistTargetMin);
+  const shortlistIds = shortlist.map(
+    (s) => candidates.find((c) => String(c._id) === s.storyId)!._id,
+  );
+  return { shortlist, funnel, shortfallReasons, outcomes, shortlistIds };
+}
 
+/** Closes the candidate set and finishes the run with every candidate's outcome. */
+export async function finalizeRun(input: {
+  runKey: string;
+  owner: string;
+  deps: DiscoveryDeps;
+}): Promise<FinalizeResult> {
+  const { runKey, owner, deps } = input;
+  const now = deps.now();
+  await closeCandidateSet(runKey, now);
+  const ranked = await rankRun(runKey, deps, now);
   await completeRun({
     runKey,
     owner,
     now,
-    funnel,
-    shortlist: shortlist.map((s) => ({
-      ...s,
-      storyId: candidates.find((c) => String(c._id) === s.storyId)!._id,
-    })),
-    outcomes,
-    shortfallReasons,
+    funnel: ranked.funnel,
+    shortlist: ranked.shortlist.map((s, i) => ({ ...s, storyId: ranked.shortlistIds[i]! })),
+    outcomes: ranked.outcomes,
+    shortfallReasons: ranked.shortfallReasons,
   });
-  return { shortlist, funnel, shortfallReasons };
+  return {
+    shortlist: ranked.shortlist,
+    funnel: ranked.funnel,
+    shortfallReasons: ranked.shortfallReasons,
+  };
+}
+
+/**
+ * Ranks a completed run again after its assessments were recovered (ADR-046), by the same rules
+ * as `finalizeRun` and from stored evaluations only. The run keeps its key, its errors and its
+ * stage statistics; only its outcomes, funnel, shortlist and shortfall are replaced, and only
+ * while it is still completed. Returns null when the run isn't (nothing is written).
+ */
+export async function rerankCompletedRun(input: {
+  runKey: string;
+  deps: DiscoveryDeps;
+}): Promise<FinalizeResult | null> {
+  const { WorkflowRun } = await getModels();
+  const run = await getRun(input.runKey);
+  if (run?.status !== 'completed') return null;
+  const ranked = await rankRun(input.runKey, input.deps, input.deps.now());
+  const written = await WorkflowRun.updateOne(
+    { runKey: input.runKey, status: 'completed' },
+    {
+      $set: {
+        funnel: ranked.funnel,
+        shortlist: ranked.shortlist.map((s, i) => ({ ...s, storyId: ranked.shortlistIds[i]! })),
+        outcomes: ranked.outcomes,
+        shortfallReasons: ranked.shortfallReasons,
+      },
+    },
+  );
+  if (written.matchedCount !== 1) return null;
+  return {
+    shortlist: ranked.shortlist,
+    funnel: ranked.funnel,
+    shortfallReasons: ranked.shortfallReasons,
+  };
 }

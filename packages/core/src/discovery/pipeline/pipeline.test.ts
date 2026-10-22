@@ -112,8 +112,9 @@ describe('daily discovery pipeline (fixtures)', () => {
       'exclusion:generic_luxury_promotion': 1,
     });
 
-    // Cost shape: 1 triage batch, 1 clustering call, 6 evaluations + 1 escalation.
-    expect(calls.filter((c) => c.operation === 'triage')).toHaveLength(1);
+    // Cost shape: 2 triage batches (six articles each, ADR-046), 1 clustering call,
+    // 6 evaluations + 1 escalation.
+    expect(calls.filter((c) => c.operation === 'triage')).toHaveLength(2);
     expect(calls.filter((c) => c.operation === 'cluster')).toHaveLength(1);
     expect(calls.filter((c) => c.operation === 'evaluate')).toHaveLength(7);
     expect(search.calls.search).toBe(2);

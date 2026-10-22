@@ -12,6 +12,7 @@ import {
   outcomeTone,
   runStatus,
   shortfallPlain,
+  recoveryLabel,
 } from '@/components/editorial/copy';
 import { formatDateTime } from '@/components/editorial/format';
 import {
@@ -82,6 +83,26 @@ function RunBody({ run }: { run: RunDetailDto }) {
       {run.status === 'failed' ? (
         <StatusNote tone="problem" title="This search stopped before finishing." className="mt-8">
           The technical detail is under “Problems” below. The next start picks up where it left off.
+        </StatusNote>
+      ) : null}
+
+      {run.recovery ? (
+        <StatusNote
+          tone={
+            run.recovery.status === 'completed'
+              ? 'done'
+              : run.recovery.status === 'running'
+                ? 'info'
+                : 'attention'
+          }
+          title={recoveryLabel(run.recovery)}
+          className="mt-8"
+        >
+          {run.recovery.status === 'completed'
+            ? `Assessments that failed for a reason that wasn’t the stories’ own were made again${run.recovery.completedAt ? ` on ${formatDateTime(run.recovery.completedAt)}` : ''}: ${run.recovery.assessed} assessed, by the same checks and scoring. The figures below include them.`
+            : run.recovery.status === 'running'
+              ? `${run.recovery.assessed} assessed so far. The edition is ranked again when it finishes.`
+              : `${run.recovery.assessed} assessed before it stopped${run.recovery.note ? ` (${run.recovery.note})` : ''}. Running it again resumes where it left off.`}
         </StatusNote>
       ) : null}
 

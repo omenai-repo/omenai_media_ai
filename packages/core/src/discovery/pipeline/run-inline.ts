@@ -1,6 +1,7 @@
 import { chicagoDateKey } from '@repo/shared';
 
 import { LlmError } from '../../llm/types.js';
+import { isRequestConfigurationError } from '../../tasks/errors.js';
 import { claimRun, failRun, startRun, type RunTrigger } from '../runs.js';
 import type { DiscoveryDeps } from './context.js';
 import { evaluateStory, markEvaluationFailed } from './evaluate.js';
@@ -46,7 +47,9 @@ export async function runDiscoveryInline(input: {
         // One candidate failing never stops the others.
         const message =
           error instanceof LlmError ? `${error.kind}: ${error.message}` : String(error);
-        await markEvaluationFailed(runKey, storyId, message);
+        await markEvaluationFailed(runKey, storyId, message, {
+          countRun: !isRequestConfigurationError(error),
+        });
       }
     }
     return await finalizeRun({ runKey, owner, deps });

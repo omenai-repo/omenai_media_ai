@@ -1,4 +1,5 @@
 import {
+  isRequestConfigurationFailure,
   SCORE_THRESHOLDS,
   type CandidateOutcome,
   type RecommendedAction,
@@ -184,7 +185,19 @@ export function failureReason(detail: string): string {
   if (/rate limit|\b429\b/i.test(detail)) return `${service} asked us to slow down.`;
   if (/high demand|overloaded|unavailable|\b50[0-9]\b/i.test(detail))
     return `${service} was overloaded and didn’t respond after several tries.`;
+  if (isRequestConfigurationFailure(detail))
+    return `${service} rejected the request as we built it. That’s a problem on our side, not an outage, so retrying won’t fix it.`;
   return 'Something went wrong, so it stopped.';
+}
+
+/** A run's recovery (ADR-046) in a few words, for the edition history. */
+export function recoveryLabel(
+  recovery: { status: 'running' | 'completed' | 'incomplete'; remaining: number } | null,
+): string | null {
+  if (!recovery) return null;
+  if (recovery.status === 'completed') return 'Assessments recovered';
+  if (recovery.status === 'running') return 'Recovery under way';
+  return `Recovery stopped, ${plural(recovery.remaining, 'story', 'stories')} left`;
 }
 
 export const RUN_STATUS: Record<string, { label: string; tone: Tone }> = {
@@ -428,6 +441,14 @@ export function attentionTitle(item: AttentionCopyInput): string {
       return `The edition completed, but ${plural(n, 'source')} couldn’t be searched or read.`;
     case 'assessment_failed':
       return `${plural(n, 'story', 'stories')} couldn’t be assessed because of a technical problem.`;
+    case 'assessment_blocked':
+      return `${plural(n, 'story', 'stories')} couldn’t be assessed: the AI service rejected the request as we built it.`;
+    case 'assessment_retry_due':
+      return `${plural(n, 'story', 'stories')} couldn’t be assessed and will be tried again in the next edition.`;
+    case 'recovery_running':
+      return `This edition’s assessments are being recovered (${plural(n, 'story', 'stories')} to go).`;
+    case 'recovery_incomplete':
+      return `Recovering this edition’s assessments stopped with ${plural(n, 'story', 'stories')} left.`;
     case 'task_retrying':
       return item.task ? `${workName(item.task)} failed and is being tried again.` : 'Retrying.';
     case 'task_stalled':
@@ -488,6 +509,22 @@ export function attentionAction(
       return 'Usually temporary, and the stories were assessed from what could be read. Worth a look only if it happens every night.';
     case 'assessment_failed':
       return 'Those stories weren’t included in the edition. If it keeps happening, check the AI service.';
+    case 'assessment_blocked':
+      return `It’s a problem with how the request was built, not an outage, so trying again won’t help. ${
+        owner
+          ? 'It needs a code or configuration fix and a redeploy; the stories can then be recovered into their edition.'
+          : 'Let the newsroom’s owner know.'
+      }`;
+    case 'assessment_retry_due':
+      return 'Nothing to do: the next edition assesses them once more. If that fails too, they move to Needs attention.';
+    case 'recovery_running':
+      return 'Nothing to do: the edition is ranked again with the recovered stories when it finishes.';
+    case 'recovery_incomplete':
+      return `${item.detail.includes('ceiling') ? 'It reached its request limit. ' : ''}${
+        owner
+          ? 'Run the recovery again to resume: stories it already assessed aren’t assessed twice.'
+          : 'Let the newsroom’s owner know.'
+      }`;
     case 'task_retrying':
       return 'Nothing to do: it’s being retried automatically. If the last attempt fails, or retrying stops, it moves to Needs attention.';
     case 'task_stalled':

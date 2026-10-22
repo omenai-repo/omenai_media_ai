@@ -1,3 +1,5 @@
+import { isRequestConfigurationFailure } from '@repo/shared';
+
 import { getModels } from '../db/models.js';
 import type { TaskDoc } from '../db/models/task.js';
 import { MAX_RUN_ATTEMPTS, RUN_QUIET_AFTER_MS } from '../discovery/runs.js';
@@ -22,6 +24,13 @@ export type AttentionKind =
   | 'run_retrying'
   | 'sources_failed'
   | 'assessment_failed'
+  /** Assessments refused because of how the request was built: a fix is needed, not a retry. */
+  | 'assessment_blocked'
+  /** Failed assessments the next edition tries once more on its own. */
+  | 'assessment_retry_due'
+  /** A recovery of an edition's assessments (ADR-046), under way or stopped with work left. */
+  | 'recovery_running'
+  | 'recovery_incomplete'
   | 'task_failed'
   | 'task_stalled'
   | 'task_retrying';
@@ -239,22 +248,75 @@ export async function getOperationsOverview(
     }
     const failedAssessments = (run.outcomes ?? []).filter((o) => o.outcome === 'evaluation_failed');
     if (failedAssessments.length) {
+      // Split by what can fix them: a code or configuration fix, the next edition's one retry,
+      // or someone's look. Stories assessed since (by that retry or a recovery) aren't counted.
+      const stories = await Story.find(
+        { _id: { $in: failedAssessments.flatMap((o) => (o.storyId ? [o.storyId] : [])) } },
+        { evaluation: 1, editorialState: 1 },
+      ).lean();
+      const byId = new Map(stories.map((s) => [String(s._id), s]));
+      const groups = { blocked: [], retryDue: [], failed: [] } as Record<
+        'blocked' | 'retryDue' | 'failed',
+        typeof failedAssessments
+      >;
+      for (const o of failedAssessments) {
+        const story = byId.get(String(o.storyId));
+        if (story && story.evaluation?.status !== 'failed') continue;
+        if (isRequestConfigurationFailure(o.detail ?? '')) groups.blocked.push(o);
+        else if (story?.evaluation?.failedRuns === 1 && story.editorialState !== 'skipped')
+          groups.retryDue.push(o);
+        else groups.failed.push(o);
+      }
+      const kinds = [
+        ['blocked', 'assessment_blocked', false],
+        ['retryDue', 'assessment_retry_due', true],
+        ['failed', 'assessment_failed', false],
+      ] as const;
+      for (const [group, kind, automatic] of kinds) {
+        const items = groups[group];
+        if (!items.length) continue;
+        attention.push({
+          ...base,
+          kind,
+          automatic,
+          runKey: run.runKey,
+          at: iso(run.completedAt ?? run.updatedAt),
+          count: items.length,
+          detail: items.map((o) => o.detail || 'No detail recorded.').join('\n'),
+        });
+      }
+    }
+    const recovery = run.recovery;
+    if (recovery && recovery.status !== 'completed') {
+      const counts = (recovery.counts ?? {}) as {
+        assessed?: number;
+        eligibleAtStart?: number;
+        remainingEligible?: number;
+      };
+      const live =
+        recovery.status === 'running' &&
+        recovery.updatedAt >= new Date(now.getTime() - 10 * 60_000);
       attention.push({
         ...base,
-        kind: 'assessment_failed',
+        kind: live ? 'recovery_running' : 'recovery_incomplete',
+        automatic: live,
         runKey: run.runKey,
-        at: iso(run.completedAt ?? run.updatedAt),
-        count: failedAssessments.length,
-        detail: failedAssessments.map((o) => o.detail || 'No detail recorded.').join('\n'),
+        at: iso(recovery.updatedAt),
+        count:
+          counts.remainingEligible ??
+          Math.max(0, (counts.eligibleAtStart ?? 0) - (counts.assessed ?? 0)),
+        attempts: null,
+        detail: `Recovery ${recovery.id} (${recovery.status}, started ${iso(recovery.startedAt)}): ${counts.assessed ?? 0} assessed of ${counts.eligibleAtStart ?? '?'}.${recovery.note ? ` ${recovery.note}` : ''}`,
       });
     }
   }
 
-  // An assessment that gave up is already reported with its edition (above).
+  // An assessment that gave up is already reported with its edition (above), and so is one a
+  // recovery has attempted: its edition's recovery item covers it.
   const reportedAssessments = new Set(
     recentRuns.flatMap((run) =>
       (run.outcomes ?? [])
-        .filter((o) => o.outcome === 'evaluation_failed')
+        .filter((o) => o.outcome === 'evaluation_failed' || run.recovery)
         .map((o) => `${run.runKey}:${String(o.storyId)}`),
     ),
   );

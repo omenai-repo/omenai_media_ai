@@ -243,6 +243,23 @@ it('counts a failure once per run, however often it is reported', async () => {
   expect((await Story.findById(story._id).lean())?.evaluation?.failedRuns).toBe(2);
 });
 
+it('records a refused request without spending the story’s retry, so it can be recovered', async () => {
+  const { Story } = await getModels();
+  const story = await Story.create({
+    headline: 'Topic-G',
+    firstSeenRunKey: day('2026-10-15'),
+    lastCandidateRunKey: day('2026-10-15'),
+  });
+  const refused = 'Anthropic API error 400: The compiled grammar is too large';
+  await markEvaluationFailed(day('2026-10-15'), String(story._id), refused, { countRun: false });
+  expect((await Story.findById(story._id).lean())?.evaluation).toMatchObject({
+    status: 'failed',
+    outcome: 'evaluation_failed',
+    error: refused,
+    failedRuns: 0,
+  });
+});
+
 describe('the whole bounded flow, over several runs', () => {
   it('accounts for every article and story through interruptions, retries, duplicates and expiry', async () => {
     const q1 = [

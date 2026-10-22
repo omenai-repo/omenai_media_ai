@@ -5,3 +5,4 @@ export * from './editorial/index.js';
 export * from './schemas/api-error.js';
 export * from './schemas/health.js';
 export * from './utils/format-duration.js';
+export * from './utils/shorten-prose.js';

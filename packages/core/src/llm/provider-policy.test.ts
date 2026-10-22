@@ -272,6 +272,33 @@ describe('production invocation boundary', () => {
     expect((error as Error).message).toMatch(/^Anthropic API error 400/);
   });
 
+  it('12. a refused grammar is re-sent once without it, then never again, and never to Gemini', async () => {
+    setEnv(PRODUCTION_WITH_GEMINI_LEFTOVERS);
+    const calls = stubProviderApis(
+      () =>
+        new Response(
+          JSON.stringify({
+            type: 'error',
+            error: {
+              type: 'invalid_request_error',
+              message: 'The compiled grammar is too large, which would cause performance issues.',
+            },
+          }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    for (const tier of ['primary', 'primary', 'escalation'] as const)
+      await expect(classify(tier)).rejects.toMatchObject({
+        provider: 'anthropic',
+        kind: 'schema_rejected',
+        retryable: false,
+      });
+    // Two requests in all, both to Anthropic: the grammar, then the schema in the prompt (here
+    // refused too). Repeats and the other tier with the same schema are refused before sending.
+    expect(calls.map((c) => c.host)).toEqual(['api.anthropic.com', 'api.anthropic.com']);
+    expect(createGeminiProvider).not.toHaveBeenCalled();
+  });
+
   it('rebuilds a warm process’s client when its configuration changes, never keeping Gemini', () => {
     setEnv({ OMENAI_RUNTIME: 'live-dev', LLM_PROVIDER: 'gemini', GEMINI_API_KEY: 'g' });
     expect(getLlmClient().provider).toBe('gemini');

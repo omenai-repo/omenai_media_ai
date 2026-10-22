@@ -44,7 +44,7 @@ TASK: First-pass triage of newly found articles. For each article decide whether
 EXCLUSION SIGNALS you may flag (they are reviewed later, not final):
 ${list(EXCLUSIONS.ids.map((id) => [id, EXCLUSIONS.labels[id]]))}
 
-Return one entry per article, using its label as "ref".`;
+Return one entry per article, using its label as "ref". Keep each reason to one short sentence, under 200 characters: the grounds for the decision, not a summary of the article.`;
 
 export const CHANGE_SYSTEM_PROMPT = `${IDENTITY}
 
@@ -80,7 +80,7 @@ KEY CLAIMS: list up to four factual claims the recommendation depends on: what h
 
 EDITORIAL TEST: complete “This matters to Omenai’s audience because…” with a specific, evidence-based answer, and list in supportedBy the key claims it rests on (1 = the first). Your analysis may go beyond the claims; the facts it relies on may not. If you cannot, set canAnswer to false. A weak answer looks like “A new museum has opened in Lagos. This is an important cultural story.” A strong one names the specific question, people, history or connection that makes it significant, and stays a hypothesis where reporting has not confirmed it.
 
-SCORING: score each dimension 0–5 (integers) with a concrete rationale. Do not compute a total.
+SCORING: score each dimension 0–5 (integers) with a concrete rationale, as an object per dimension: "scores": {"cultural_significance": {"score": 4, "rationale": "…"}, …}. Do not compute a total.
 ${SCORING_DIMENSION_IDS.map((id) => `- ${id} (${SCORING_DIMENSIONS[id].label}): 5 means ${SCORING_DIMENSIONS[id].highMeans}`).join('\n')}
 Scores support human judgement; do not inflate them. Celebrity names, press releases, timeliness and sponsor fit must not carry a weak story.
 

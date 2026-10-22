@@ -59,11 +59,24 @@ export const BACKGROUND_ATTEMPT_MS = 180_000;
 export const BACKGROUND_CALL_MS = 240_000;
 const DEFAULT_MIN_REPAIR_MS = 5_000;
 
-/** Tolerates a Markdown code fence around JSON, which some models add despite instructions. */
+/**
+ * Tolerates a Markdown code fence, or a sentence before or after the object, which models add
+ * despite instructions when no grammar binds them. Only a whole object that parses is accepted;
+ * a cut-off answer never gets here (its stop reason fails the call first).
+ */
 function parseJson(text: string): unknown {
   const trimmed = text.trim();
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
-  return JSON.parse(fenced ? fenced[1]! : trimmed);
+  const body = fenced ? fenced[1]! : trimmed;
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    const start = body.indexOf('{');
+    const end = body.lastIndexOf('}');
+    if (start <= 0 && end === body.length - 1) throw error;
+    if (start < 0 || end <= start) throw error;
+    return JSON.parse(body.slice(start, end + 1));
+  }
 }
 
 function describeIssues(error: z.ZodError): string {
@@ -101,6 +114,12 @@ export function createLlmClient(options: {
 }): LlmClient {
   const { provider, models } = options;
   const recordUsage = options.recordUsage ?? recordUsageInDatabase;
+  /**
+   * Response schemas the provider refused to compile (`schema_rejected`), by hash. That refusal is
+   * permanent for the schema, so later calls with it fail here without sending the same request
+   * again; a corrected schema has a different hash and is sent normally.
+   */
+  const rejectedSchemas = new Set<string>();
 
   /**
    * One provider request, hard-bounded by `deadlineAt`: the client stops waiting at that moment
@@ -260,30 +279,46 @@ export function createLlmClient(options: {
 
   /**
    * Attempt 1 (streamed when asked), then at most one repair round that shows the model its own
-   * mistake, if the deadline leaves time for it.
+   * mistake, if the deadline leaves time for it and the caller allows it.
    */
   async function objectCall<T>(
     request: ObjectRequest<T> & Pick<StreamObjectRequest<T>, 'onText'>,
   ): Promise<LlmResult<T>> {
     const jsonSchema = toNeutralJsonSchema(request.schema);
+    const schemaHash = createHash('sha256').update(JSON.stringify(jsonSchema)).digest('hex');
+    if (rejectedSchemas.has(schemaHash))
+      throw new LlmError(
+        'schema_rejected',
+        `${request.operation}: not sent. The AI service already refused to compile this response schema, and the same request can't succeed.`,
+        provider.name,
+      );
     const deadlineAt = request.deadlineAt ?? Date.now() + BACKGROUND_CALL_MS;
     const minRepairMs = request.minRepairMs ?? DEFAULT_MIN_REPAIR_MS;
+    const maxAttempts = request.repair === false ? 1 : 2;
     let messages = request.messages;
     let lastProblem = '';
     let latencyMs = 0;
     let repairSkipped = false;
 
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (attempt === 2 && deadlineAt - Date.now() < minRepairMs) {
         repairSkipped = true;
         break;
       }
       if (attempt === 2) request.onRepair?.();
-      const { response, timing } = await call(request, messages, jsonSchema, {
-        deadlineAt,
-        onText: attempt === 1 ? request.onText : undefined,
-        repairReason: attempt === 2 ? lastProblem.slice(0, 500) : undefined,
-      });
+      let sent;
+      try {
+        sent = await call(request, messages, jsonSchema, {
+          deadlineAt,
+          onText: attempt === 1 ? request.onText : undefined,
+          repairReason: attempt === 2 ? lastProblem.slice(0, 500) : undefined,
+        });
+      } catch (error) {
+        if (error instanceof LlmError && error.kind === 'schema_rejected')
+          rejectedSchemas.add(schemaHash);
+        throw error;
+      }
+      const { response, timing } = sent;
       latencyMs += timing.latencyMs;
       let candidate: unknown;
       try {
@@ -298,7 +333,8 @@ export function createLlmClient(options: {
         continue;
       }
 
-      const parsed = request.schema.safeParse(candidate);
+      const normalized = request.normalize?.(candidate);
+      const parsed = request.schema.safeParse(normalized ? normalized.value : candidate);
       if (parsed.success) {
         return {
           data: parsed.data,
@@ -306,6 +342,7 @@ export function createLlmClient(options: {
           model: response.model,
           usage: response.usage,
           timing: { ...timing, latencyMs },
+          ...(normalized?.notes.length ? { normalized: normalized.notes } : {}),
         };
       }
       lastProblem = describeIssues(parsed.error);
@@ -321,7 +358,7 @@ export function createLlmClient(options: {
 
     throw new LlmError(
       'invalid_output',
-      `${request.operation}: output failed validation ${repairSkipped ? 'and there was no time left for a repair' : 'after a repair attempt'}.\n${lastProblem}`,
+      `${request.operation}: output failed validation ${repairSkipped ? 'and there was no time left for a repair' : maxAttempts === 1 ? '(no repair round requested)' : 'after a repair attempt'}.\n${lastProblem}`,
       provider.name,
     );
   }
